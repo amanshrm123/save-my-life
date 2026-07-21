@@ -6,9 +6,12 @@
 /// deltas (see docs/discovery/TimingTap_Discovery_v1.md §3a, rule 1).
 ///
 /// A single instance of this class is shared by the tap-measurement path
-/// (`tap_surface.dart`) and the display path (`indicator_painter.dart`) so
-/// that device display latency is a constant offset rather than drifting
-/// noise.
+/// (`tap_surface.dart`) and `RunController` (round timing/re-rolling) so
+/// every reader agrees on the same zero point — no drifting noise between
+/// independent clocks. (There was previously also a display path here,
+/// `indicator_painter.dart`'s moving progress lane — removed in the
+/// play-loop-v2.md exact-fidelity pass since the mockup has no equivalent
+/// and nothing else depended on it being mounted.)
 class MonotonicClock {
   final Stopwatch _stopwatch = Stopwatch();
 

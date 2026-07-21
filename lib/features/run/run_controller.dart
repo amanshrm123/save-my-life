@@ -74,9 +74,10 @@ const int _maxTargetDurationMicros = 20 * 1000000;
 const double _startingLifePct = 50.0;
 
 /// The shared [MonotonicClock] instance used by both tap measurement
-/// (`TapSurface`) and display (`IndicatorWidget`) — architecture v1 §1.2:
-/// one clock instance for the whole run so display latency is a constant
-/// offset, not drifting noise. Started once, on first read.
+/// (`TapSurface`) and round timing (`RunController.registerTap`/
+/// `beginPlaying`) — architecture v1 §1.2: one clock instance for the
+/// whole run so every reader agrees on the same zero point. Started once,
+/// on first read.
 final clockProvider = Provider<MonotonicClock>((ref) {
   final clock = MonotonicClock()..start();
   ref.onDispose(clock.stop);

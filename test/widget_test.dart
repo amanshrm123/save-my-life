@@ -94,7 +94,7 @@ void main() {
       await tester.pump(const Duration(seconds: 3));
       await tester.pump();
 
-      expect(find.textContaining('LIFE:'), findsOneWidget);
+      expect(find.textContaining('Life '), findsOneWidget);
       // The bare "TARGET: {n}s" debug text is gone — play-loop-v1.md §3.2
       // replaces it with the numplate's "Tap at" label + chrome around the
       // same number.
@@ -102,6 +102,10 @@ void main() {
       expect(find.textContaining('DELTA:'), findsOneWidget);
       expect(find.textContaining('BAND:'), findsOneWidget);
       expect(find.text('TAP'), findsOneWidget);
+      // Run/Deaths chip row (play-loop-v2.md §2.1/§3.1) — hardcoded stub
+      // values, present as soon as the Play zones are up.
+      expect(find.text('Run '), findsOneWidget);
+      expect(find.text('Deaths '), findsOneWidget);
     },
   );
 
@@ -137,9 +141,13 @@ void main() {
         await tester.pump(const Duration(seconds: 1));
         await tester.pump();
 
-        // Instant swap: the countdown text is gone and the Play zones are
-        // up, with no intermediate "GO"/fade frame.
-        expect(find.text('1'), findsNothing);
+        // Instant swap: the countdown screen is gone and the Play zones are
+        // up, with no intermediate "GO"/fade frame. Asserting CountdownView
+        // itself is gone (rather than the digit text '1' being absent) —
+        // play-loop-v2.md's Run/Deaths chip row now legitimately renders a
+        // "Run 1" value, so a bare find.text('1') would find that chip
+        // instead of proving the countdown screen is really gone.
+        expect(find.byType(CountdownView), findsNothing);
         expect(find.text('TAP'), findsOneWidget);
         expect(container.read(runControllerProvider).phase, RunPhase.playing);
       },
@@ -218,7 +226,12 @@ void main() {
         await tester.pump(const Duration(seconds: 1));
         await tester.pump();
 
-        expect(find.text('1'), findsNothing);
+        // CountdownView itself is gone (rather than asserting the digit
+        // text '1' is absent, which play-loop-v2.md's Run/Deaths chip row
+        // now legitimately renders as its own "Run 1" value — a bare
+        // find.text('1') would find that chip instead of proving the
+        // countdown screen is really gone).
+        expect(find.byType(CountdownView), findsNothing);
         expect(find.text('TAP'), findsOneWidget);
         expect(container.read(runControllerProvider).phase, RunPhase.playing);
       },
@@ -380,7 +393,7 @@ void main() {
 
         expect(find.textContaining('DELTA: —'), findsOneWidget);
         expect(find.textContaining('BAND: —'), findsOneWidget);
-        expect(find.textContaining('LIFE: 50%'), findsOneWidget);
+        expect(find.textContaining('Life 50%'), findsOneWidget);
       },
     );
 
@@ -394,25 +407,25 @@ void main() {
         await tapAtDelta(tester, 10000);
         expect(find.textContaining('DELTA: 10 ms'), findsOneWidget);
         expect(find.textContaining('BAND: PERFECT'), findsOneWidget);
-        expect(find.textContaining('LIFE: 53%'), findsOneWidget); // 50 + 3
+        expect(find.textContaining('Life 53%'), findsOneWidget); // 50 + 3
 
         // Round 2: On-point (50ms, inside +-80ms, outside +-30ms).
         await tapAtDelta(tester, 50000);
         expect(find.textContaining('DELTA: 50 ms'), findsOneWidget);
         expect(find.textContaining('BAND: ON_POINT'), findsOneWidget);
-        expect(find.textContaining('LIFE: 55%'), findsOneWidget); // 53 + 2
+        expect(find.textContaining('Life 55%'), findsOneWidget); // 53 + 2
 
         // Round 3: Miss (500ms, well outside +-80ms).
         await tapAtDelta(tester, 500000);
         expect(find.textContaining('DELTA: 500 ms'), findsOneWidget);
         expect(find.textContaining('BAND: MISS'), findsOneWidget);
-        expect(find.textContaining('LIFE: 51%'), findsOneWidget); // 55 - 4
+        expect(find.textContaining('Life 51%'), findsOneWidget); // 55 - 4
 
         // Round 4: Perfect again, on the negative side (press before target).
         await tapAtDelta(tester, -20000);
         expect(find.textContaining('DELTA: 20 ms'), findsOneWidget);
         expect(find.textContaining('BAND: PERFECT'), findsOneWidget);
-        expect(find.textContaining('LIFE: 54%'), findsOneWidget); // 51 + 3
+        expect(find.textContaining('Life 54%'), findsOneWidget); // 51 + 3
       },
     );
 
@@ -486,7 +499,7 @@ void main() {
         for (int i = 0; i < 20; i++) {
           await tapAtDelta(tester, 10000); // Perfect every time
         }
-        expect(find.textContaining('LIFE: 100%'), findsOneWidget);
+        expect(find.textContaining('Life 100%'), findsOneWidget);
         expect(container.read(runControllerProvider).lifePct, 100.0);
       },
     );
@@ -498,7 +511,7 @@ void main() {
         for (int i = 0; i < 20; i++) {
           await tapAtDelta(tester, 500000); // Miss every time
         }
-        expect(find.textContaining('LIFE: 0%'), findsOneWidget);
+        expect(find.textContaining('Life 0%'), findsOneWidget);
         expect(container.read(runControllerProvider).lifePct, 0.0);
       },
     );
@@ -511,7 +524,7 @@ void main() {
         await tapAtDelta(tester, 1000000000);
         expect(find.textContaining('BAND: MISS'), findsOneWidget);
         expect(find.textContaining('DELTA: 1000000 ms'), findsOneWidget);
-        expect(find.textContaining('LIFE: 46%'), findsOneWidget); // 50 - 4
+        expect(find.textContaining('Life 46%'), findsOneWidget); // 50 - 4
       },
     );
 
@@ -785,5 +798,110 @@ void main() {
       expect(container.read(runControllerProvider).lifePct, 100.0);
       expect(lifeBarFillColor(tester), AppColors.green);
     });
+  });
+
+  group('Play loop v2 exact-fidelity rebuild (docs/design/play-loop-v2.md)', () {
+    late FakeMonotonicClock clock;
+    late ProviderContainer container;
+
+    setUp(() {
+      clock = FakeMonotonicClock(0);
+      container = ProviderContainer(
+        overrides: [clockProvider.overrideWithValue(clock)],
+      );
+    });
+
+    tearDown(() {
+      container.dispose();
+    });
+
+    Future<void> pumpScreen(WidgetTester tester) async {
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const MaterialApp(home: PlayScreen()),
+        ),
+      );
+      await tester.pump();
+      container.read(runControllerProvider.notifier).beginPlaying();
+      await tester.pump();
+    }
+
+    testWidgets(
+      'Run/Deaths chips render with the hardcoded stub values, not a live '
+      'counter (§2.1/§3.1 — no restart/death logic exists yet, so a '
+      'counter would just sit at its initial value identically to a '
+      'literal)',
+      (tester) async {
+        await pumpScreen(tester);
+
+        expect(find.text('Run '), findsOneWidget);
+        expect(find.text('Deaths '), findsOneWidget);
+        // The chips' own '1'/'0' values are separate Text widgets from
+        // their labels (per the §2.1 recipe) — findable independently.
+        expect(find.text('1'), findsOneWidget);
+        expect(find.text('0'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'legend pills sit in their own row above the tap button, not inside '
+      "its widget subtree (§2.2/§3.4 — reverses the old build's "
+      '_TapZone-owned trailing pills row)',
+      (tester) async {
+        await pumpScreen(tester);
+
+        final Finder hitPill = find.textContaining('Hit ');
+        final Finder missPill = find.textContaining('Miss ');
+        expect(hitPill, findsOneWidget);
+        expect(missPill, findsOneWidget);
+
+        // Findable independently of TapSurface's subtree — not a
+        // descendant of it (the old build nested these inside _TapZone's
+        // Column, itself TapSurface's own child).
+        expect(
+          find.descendant(of: find.byType(TapSurface), matching: hitPill),
+          findsNothing,
+        );
+        expect(
+          find.descendant(of: find.byType(TapSurface), matching: missPill),
+          findsNothing,
+        );
+
+        // Positioned above the button: the pills' vertical offset is
+        // strictly less than TapSurface's own top.
+        final double pillTop = tester.getTopLeft(hitPill).dy;
+        final double tapSurfaceTop =
+            tester.getTopLeft(find.byType(TapSurface)).dy;
+        expect(pillTop, lessThan(tapSurfaceTop));
+      },
+    );
+
+    testWidgets(
+      'IndicatorWidget/_IndicatorPainter is never constructed anywhere in '
+      'the Play screen render tree (§2.3 — removed entirely, no mockup '
+      'counterpart at any state)',
+      (tester) async {
+        await pumpScreen(tester);
+
+        // Checked by runtimeType name rather than an import, so this
+        // assertion holds regardless of whether indicator_painter.dart was
+        // deleted outright or merely left unreferenced.
+        expect(
+          find.byWidgetPredicate(
+            (widget) => widget.runtimeType.toString() == 'IndicatorWidget',
+          ),
+          findsNothing,
+        );
+        expect(
+          find.byWidgetPredicate(
+            (widget) =>
+                widget is CustomPaint &&
+                widget.painter?.runtimeType.toString() == '_IndicatorPainter',
+          ),
+          findsNothing,
+        );
+      },
+    );
   });
 }
