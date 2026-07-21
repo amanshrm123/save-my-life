@@ -20,10 +20,12 @@
 // resolve(), PlayScreen's text) is exercised unmodified.
 
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:timing_tap/app/app.dart';
+import 'package:timing_tap/features/run/countdown_view.dart';
 import 'package:timing_tap/features/run/run_controller.dart';
 import 'package:timing_tap/features/timing_engine/tap_surface.dart';
 
@@ -90,6 +92,85 @@ void main() {
 
         // Instant swap: the countdown text is gone and the Play zones are
         // up, with no intermediate "GO"/fade frame.
+        expect(find.text('1'), findsNothing);
+        expect(find.text('TAP'), findsOneWidget);
+        expect(container.read(runControllerProvider).phase, RunPhase.playing);
+      },
+    );
+
+    testWidgets(
+      'countdown Timer is created while handling a post-frame callback, not '
+      'synchronously during the initial build (regression for the '
+      'on-device bug where a Timer started in initState raced a slow cold '
+      'engine start and finished the whole countdown off-screen before '
+      'anything was ever composited)',
+      (WidgetTester tester) async {
+        // Flutter's test harness always finishes building *and* drawing a
+        // frame — including firing any postFrameCallback — within a single
+        // `pumpWidget`/`pump` call, and its simulated clock only ever moves
+        // when explicitly told to via a `duration`. That means there is no
+        // way to insert simulated real-world "cold start" time between
+        // `initState` and the first frame being drawn/visible: both a
+        // `Timer` started directly in `initState` and one deferred to
+        // `addPostFrameCallback` would, from the fake clock's point of
+        // view, start at exactly the same simulated instant, regardless of
+        // how the test pumps duration around them. So instead of trying
+        // (and failing) to reproduce the race on the simulated clock, this
+        // asserts the actual mechanism of the fix: `SchedulerBinding`
+        // reports a distinct phase for "currently mid-build" (
+        // `SchedulerPhase.persistentCallbacks`, what `initState` would see)
+        // versus "currently running post-frame callbacks" (
+        // `SchedulerPhase.postFrameCallbacks`). `CountdownView` records
+        // which phase was active at the moment it actually created its
+        // `Timer` (test-only field, `debugTimerStartedDuringPhase`) so this
+        // test can confirm the timer-creation genuinely happens after the
+        // first frame, not merely that the code was refactored.
+        final FakeMonotonicClock clock = FakeMonotonicClock(0);
+        final ProviderContainer container = ProviderContainer(
+          overrides: [clockProvider.overrideWithValue(clock)],
+        );
+        addTearDown(container.dispose);
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: const MaterialApp(home: PlayScreen()),
+          ),
+        );
+        await tester.pump();
+
+        // `_CountdownViewState` is private, so it's accessed here via
+        // `dynamic` rather than a named type — `debugTimerStartedDuringPhase`
+        // itself is a public (test-only) member, so this resolves fine at
+        // runtime despite the class being private to countdown_view.dart.
+        final dynamic state = tester.state(find.byType(CountdownView));
+
+        expect(
+          state.debugTimerStartedDuringPhase,
+          SchedulerPhase.postFrameCallbacks,
+          reason:
+              'the countdown Timer must be created while handling a '
+              'post-frame callback (after the first frame has rendered), '
+              'not synchronously during initState/build '
+              '(SchedulerPhase.persistentCallbacks) — otherwise a slow cold '
+              'start can burn through the whole 3-2-1 before anything is '
+              'ever visible on screen.',
+        );
+
+        // Sanity check the countdown still behaves normally end-to-end.
+        expect(find.text('3'), findsOneWidget);
+        await tester.pump(const Duration(milliseconds: 999));
+        expect(find.text('3'), findsOneWidget);
+
+        await tester.pump(const Duration(milliseconds: 1));
+        expect(find.text('2'), findsOneWidget);
+
+        await tester.pump(const Duration(seconds: 1));
+        expect(find.text('1'), findsOneWidget);
+
+        await tester.pump(const Duration(seconds: 1));
+        await tester.pump();
+
         expect(find.text('1'), findsNothing);
         expect(find.text('TAP'), findsOneWidget);
         expect(container.read(runControllerProvider).phase, RunPhase.playing);
