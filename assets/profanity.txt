@@ -1,0 +1,17 @@
+# Placeholder profanity word list for name_validator.dart
+# (docs/design/onboarding-flow-v1.md §5.5/§5.6, docs/architecture/v2.md §3.4).
+#
+# One lowercase word per line. This is deliberately a short, illustrative
+# placeholder list, not a comprehensive moderation dictionary — sourcing a
+# real one is a separate content/legal task, out of scope for this pass.
+# Matching is case-insensitive and whole-word (see name_validator.dart).
+damn
+hell
+crap
+shit
+fuck
+bitch
+ass
+bastard
+dick
+piss
