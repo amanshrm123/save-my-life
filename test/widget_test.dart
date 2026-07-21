@@ -30,15 +30,71 @@ import 'package:timing_tap/features/timing_engine/tap_surface.dart';
 import 'support/fake_monotonic_clock.dart';
 
 void main() {
-  testWidgets('Play screen renders the four zones', (WidgetTester tester) async {
-    await tester.pumpWidget(const App());
-    await tester.pump();
+  testWidgets(
+    'Play screen shows the countdown first, then the four zones once it '
+    'finishes',
+    (WidgetTester tester) async {
+      await tester.pumpWidget(const App());
+      await tester.pump();
 
-    expect(find.textContaining('LIFE:'), findsOneWidget);
-    expect(find.textContaining('TARGET:'), findsOneWidget);
-    expect(find.textContaining('DELTA:'), findsOneWidget);
-    expect(find.textContaining('BAND:'), findsOneWidget);
-    expect(find.text('TAP'), findsOneWidget);
+      // RunController.build() now starts in RunPhase.countdown
+      // (play-screen-gate1-v1.md §1) — the four zones are not present yet.
+      expect(find.text('3'), findsOneWidget);
+      expect(find.text('TAP'), findsNothing);
+
+      // The countdown's Timer is real wall-clock pacing, captured by
+      // flutter_test's fake-async zone, so advancing by its exact total
+      // duration fires it deterministically.
+      await tester.pump(const Duration(seconds: 3));
+      await tester.pump();
+
+      expect(find.textContaining('LIFE:'), findsOneWidget);
+      expect(find.textContaining('TARGET:'), findsOneWidget);
+      expect(find.textContaining('DELTA:'), findsOneWidget);
+      expect(find.textContaining('BAND:'), findsOneWidget);
+      expect(find.text('TAP'), findsOneWidget);
+    },
+  );
+
+  group('Countdown (play-screen-gate1-v1.md §1)', () {
+    testWidgets(
+      'shows 3, then 2, then 1 for one second each, then swaps instantly '
+      'to the Play zones — no transition frame',
+      (WidgetTester tester) async {
+        final FakeMonotonicClock clock = FakeMonotonicClock(0);
+        final ProviderContainer container = ProviderContainer(
+          overrides: [clockProvider.overrideWithValue(clock)],
+        );
+        addTearDown(container.dispose);
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: const MaterialApp(home: PlayScreen()),
+          ),
+        );
+        await tester.pump();
+        expect(find.text('3'), findsOneWidget);
+
+        await tester.pump(const Duration(milliseconds: 999));
+        expect(find.text('3'), findsOneWidget);
+
+        await tester.pump(const Duration(milliseconds: 1));
+        expect(find.text('2'), findsOneWidget);
+
+        await tester.pump(const Duration(seconds: 1));
+        expect(find.text('1'), findsOneWidget);
+
+        await tester.pump(const Duration(seconds: 1));
+        await tester.pump();
+
+        // Instant swap: the countdown text is gone and the Play zones are
+        // up, with no intermediate "GO"/fade frame.
+        expect(find.text('1'), findsNothing);
+        expect(find.text('TAP'), findsOneWidget);
+        expect(container.read(runControllerProvider).phase, RunPhase.playing);
+      },
+    );
   });
 
   group('PlayScreen end-to-end tap flow (real Listener.onPointerDown path)', () {
@@ -64,12 +120,26 @@ void main() {
         ),
       );
       await tester.pump();
+
+      // These tests exercise the Play zones/tap flow directly — the
+      // countdown itself is covered by its own dedicated group above, so
+      // skip straight past it exactly as `CountdownView` would once "1"
+      // finishes (calling the same `beginPlaying()` the real countdown
+      // calls, not a test-only shortcut around it).
+      container.read(runControllerProvider.notifier).beginPlaying();
+      await tester.pump();
     }
 
     /// Positions the fake clock so that a tap *right now* lands
     /// [deltaMicros] away from the current round's target, then dispatches
     /// a real simulated pointer-down/up through `TapSurface`'s `Listener`,
     /// then pumps a frame so the rebuilt text reflects the new state.
+    ///
+    /// Also pumps past the tap flash's 120ms `Timer` (play-screen-gate1-v1
+    /// §3) so it doesn't linger pending into the next tap/test teardown —
+    /// this advances flutter_test's fake-async clock only, entirely
+    /// separate from the `FakeMonotonicClock` used for timing/scoring, so
+    /// it has no effect on band/life results.
     Future<void> tapAtDelta(WidgetTester tester, int deltaMicros) async {
       final RunState before = container.read(runControllerProvider);
       final int targetMicros =
@@ -77,6 +147,7 @@ void main() {
       clock.setMicros(targetMicros + deltaMicros);
       await tester.tap(find.byType(TapSurface));
       await tester.pump();
+      await tester.pump(const Duration(milliseconds: 120));
     }
 
     testWidgets(
@@ -242,6 +313,9 @@ void main() {
         await tester.pump();
         await g1.up();
         await g2.up();
+        // Drain the two 120ms flash-clear Timers (one per tap) so neither
+        // lingers pending into test teardown.
+        await tester.pump(const Duration(milliseconds: 120));
 
         // Two independent PointerDownEvents -> two registerTap() calls;
         // nothing in TapSurface/RunController deduplicates concurrent
@@ -262,5 +336,82 @@ void main() {
         expect(after.lifePct, 49.0);
       },
     );
+  });
+
+  group('Zone D tap flash (play-screen-gate1-v1.md §3)', () {
+    late FakeMonotonicClock clock;
+    late ProviderContainer container;
+
+    setUp(() {
+      clock = FakeMonotonicClock(0);
+      container = ProviderContainer(
+        overrides: [clockProvider.overrideWithValue(clock)],
+      );
+    });
+
+    tearDown(() {
+      container.dispose();
+    });
+
+    Future<void> pumpScreen(WidgetTester tester) async {
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const MaterialApp(home: PlayScreen()),
+        ),
+      );
+      await tester.pump();
+      container.read(runControllerProvider.notifier).beginPlaying();
+      await tester.pump();
+    }
+
+    Color? currentTapSurfaceColor(WidgetTester tester) {
+      final Container container = tester.widget<Container>(
+        find.descendant(
+          of: find.byType(TapSurface),
+          matching: find.byType(Container),
+        ),
+      );
+      return container.color;
+    }
+
+    testWidgets(
+      'flashes green on a hit and clears to neutral after exactly 120ms',
+      (tester) async {
+        await pumpScreen(tester);
+        expect(currentTapSurfaceColor(tester), const Color(0xFFDDDDDD));
+
+        final RunState before = container.read(runControllerProvider);
+        final int targetMicros =
+            before.roundStartMicros + before.targetDurationMicros;
+        clock.setMicros(targetMicros + 10000); // Perfect
+        await tester.tap(find.byType(TapSurface));
+        await tester.pump();
+
+        expect(currentTapSurfaceColor(tester), const Color(0xFF4CAF50));
+
+        await tester.pump(const Duration(milliseconds: 119));
+        expect(currentTapSurfaceColor(tester), const Color(0xFF4CAF50));
+
+        await tester.pump(const Duration(milliseconds: 1));
+        expect(currentTapSurfaceColor(tester), const Color(0xFFDDDDDD));
+      },
+    );
+
+    testWidgets('flashes red on a miss', (tester) async {
+      await pumpScreen(tester);
+
+      final RunState before = container.read(runControllerProvider);
+      final int targetMicros =
+          before.roundStartMicros + before.targetDurationMicros;
+      clock.setMicros(targetMicros + 500000); // Miss
+      await tester.tap(find.byType(TapSurface));
+      await tester.pump();
+
+      expect(currentTapSurfaceColor(tester), const Color(0xFFE53935));
+
+      await tester.pump(const Duration(milliseconds: 120));
+      expect(currentTapSurfaceColor(tester), const Color(0xFFDDDDDD));
+    });
   });
 }

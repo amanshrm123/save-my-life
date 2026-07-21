@@ -44,10 +44,10 @@ void main() {
   }
 
   group('initial state', () {
-    test('starts at 50% life, playing phase, no prior tap, target in range', () {
+    test('starts at 50% life, countdown phase, no prior tap, target in range', () {
       final RunState state = container.read(runControllerProvider);
       expect(state.lifePct, 50.0);
-      expect(state.phase, RunPhase.playing);
+      expect(state.phase, RunPhase.countdown);
       expect(state.lastDeltaMs, isNull);
       expect(state.lastBand, isNull);
       expect(state.targetDurationMicros, greaterThanOrEqualTo(3000000));
@@ -86,6 +86,88 @@ void main() {
         expect(state.lifePct, inInclusiveRange(0.0, 100.0));
       },
     );
+  });
+
+  group('beginPlaying() (play-screen-gate1-v1.md §1, step 2)', () {
+    test('transitions phase from countdown to playing', () {
+      expect(container.read(runControllerProvider).phase, RunPhase.countdown);
+
+      container.read(runControllerProvider.notifier).beginPlaying();
+
+      expect(container.read(runControllerProvider).phase, RunPhase.playing);
+    });
+
+    test('re-rolls roundStartMicros to the clock value at call time, not '
+        'the value from build()', () {
+      // Advance the clock well past build()'s roundStartMicros (0) before
+      // calling beginPlaying(), simulating the 3 seconds a real countdown
+      // would spend between build() and "1" disappearing.
+      clock.advance(3000000);
+
+      container.read(runControllerProvider.notifier).beginPlaying();
+
+      final RunState state = container.read(runControllerProvider);
+      expect(state.roundStartMicros, 3000000);
+    });
+
+    test('rolls a fresh targetDurationMicros within the valid range', () {
+      final int targetBefore =
+          container.read(runControllerProvider).targetDurationMicros;
+
+      container.read(runControllerProvider.notifier).beginPlaying();
+
+      final RunState state = container.read(runControllerProvider);
+      expect(state.targetDurationMicros, greaterThanOrEqualTo(3000000));
+      expect(state.targetDurationMicros, lessThan(20000000));
+      // Not asserting the value differs from targetBefore (a same-value
+      // re-roll is statistically possible) — just documenting the
+      // pre-call value alongside the post-call range contract.
+      expect(targetBefore, greaterThanOrEqualTo(3000000));
+    });
+
+    test('does not touch lifePct, lastDeltaMs, or lastBand', () {
+      // Register a tap first so lastDeltaMs/lastBand are non-null, then
+      // confirm beginPlaying() leaves them untouched (it only owns
+      // phase/roundStartMicros/targetDurationMicros per the spec).
+      tapAtDelta(10000); // Perfect
+      final RunState beforeBeginPlaying = container.read(runControllerProvider);
+
+      container.read(runControllerProvider.notifier).beginPlaying();
+
+      final RunState after = container.read(runControllerProvider);
+      expect(after.lifePct, beforeBeginPlaying.lifePct);
+      expect(after.lastDeltaMs, beforeBeginPlaying.lastDeltaMs);
+      expect(after.lastBand, beforeBeginPlaying.lastBand);
+    });
+
+    test('a round\'s timing after beginPlaying() is scored relative to the '
+        'new roundStartMicros, not the original build()-time one', () {
+      clock.advance(5000000); // simulate countdown elapsing
+      container.read(runControllerProvider.notifier).beginPlaying();
+
+      final RunState state = container.read(runControllerProvider);
+      final int targetMicros = state.roundStartMicros + state.targetDurationMicros;
+      final int pressMicros = targetMicros + 10000; // 10ms Perfect
+      clock.setMicros(pressMicros);
+      container.read(runControllerProvider.notifier).registerTap(pressMicros);
+
+      final RunState afterTap = container.read(runControllerProvider);
+      expect(afterTap.lastBand, TimingBand.perfect);
+      expect(afterTap.lastDeltaMs, 10);
+    });
+
+    test('calling beginPlaying() again re-rolls again (idempotent-safe, not '
+        'a no-op on repeat calls)', () {
+      container.read(runControllerProvider.notifier).beginPlaying();
+      final RunState first = container.read(runControllerProvider);
+
+      clock.advance(1000000);
+      container.read(runControllerProvider.notifier).beginPlaying();
+      final RunState second = container.read(runControllerProvider);
+
+      expect(second.phase, RunPhase.playing);
+      expect(second.roundStartMicros, isNot(first.roundStartMicros));
+    });
   });
 
   group('single-tap band application through the controller', () {

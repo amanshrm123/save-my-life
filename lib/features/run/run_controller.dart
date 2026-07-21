@@ -5,12 +5,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/clock.dart';
 import '../timing_engine/timing_engine.dart';
 
-/// Run phase placeholder. Only `playing` exists this phase — there is no
-/// outcome/end-of-run handling yet (that's Days 6-10's `outcome_resolver.dart`
-/// per architecture v1 §2/§3). Kept as an enum now so `RunState.phase` has a
-/// stable shape to extend later; nothing in the UI reads or branches on this
-/// value in Days 1-2 (per docs/design/play-screen-skeleton-v1.md §2, State 3).
-enum RunPhase { playing }
+/// Run phase. `countdown` is the 3-2-1 shown before a round starts scoring;
+/// `playing` is the live tap loop (docs/design/play-screen-gate1-v1.md §1).
+/// There is still no outcome/end-of-run handling (that's Days 6-10's
+/// `outcome_resolver.dart` per architecture v1 §2/§3) — `playing` simply
+/// runs until the app is closed in this phase.
+enum RunPhase { countdown, playing }
 
 /// Immutable snapshot of run state. The Play screen reads this read-only;
 /// only [RunController] mutates it.
@@ -101,7 +101,21 @@ class RunController extends Notifier<RunState> {
       lifePct: _startingLifePct,
       roundStartMicros: clock.elapsedMicroseconds,
       targetDurationMicros: _rollTargetDurationMicros(),
+      phase: RunPhase.countdown,
+    );
+  }
+
+  /// Called by `CountdownView` once the 3-2-1 has finished (Gate-1 spec
+  /// §1, step 2). Moves the run into `RunPhase.playing` and re-rolls
+  /// `roundStartMicros`/`targetDurationMicros` so the first scored round's
+  /// timing starts clean at this instant, not from whenever `build()`
+  /// happened to run (which could be seconds before the countdown ends).
+  void beginPlaying() {
+    final MonotonicClock clock = ref.read(clockProvider);
+    state = state.copyWith(
       phase: RunPhase.playing,
+      roundStartMicros: clock.elapsedMicroseconds,
+      targetDurationMicros: _rollTargetDurationMicros(),
     );
   }
 
