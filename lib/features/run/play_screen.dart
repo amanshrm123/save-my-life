@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 // `StateProvider` moved to the "legacy" import in Riverpod 3.x — still the
@@ -169,24 +170,33 @@ class PlayScreen extends ConsumerWidget {
               ),
             ),
 
-            // Zone C — debug readout (~10%), unchanged by this pass. Holds
-            // prior tap's result until the next tap overwrites it; shows
-            // "—" before the first tap.
+            // Zone C — debug readout (~10%). Gated to debug builds only:
+            // player-reviewer flagged (on real on-device screenshots) that
+            // raw "DELTA:"/"BAND:" telemetry sitting mid-screen in plain
+            // text undercut the whole point of the play-loop-v1.md visual
+            // pass — it read as leftover dev-mode scaffolding front and
+            // center on an otherwise-polished screen. tester/flutter-
+            // developer still see it during `flutter run` (debug builds);
+            // it never renders in a release build a real player would use.
+            // Flex space is kept either way so this pass doesn't touch
+            // zone proportions (play-loop-v1.md §1 constraint).
             Expanded(
               flex: 10,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      'DELTA: ${runState.lastDeltaMs == null ? '—' : '${runState.lastDeltaMs} ms'}',
-                    ),
-                    Text('BAND: ${_bandLabel(runState.lastBand)}'),
-                  ],
-                ),
-              ),
+              child: kDebugMode
+                  ? Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text(
+                            'DELTA: ${runState.lastDeltaMs == null ? '—' : '${runState.lastDeltaMs} ms'}',
+                          ),
+                          Text('BAND: ${_bandLabel(runState.lastBand)}'),
+                        ],
+                      ),
+                    )
+                  : const SizedBox.shrink(),
             ),
 
             // Zone D — tap surface, bottom half of the screen (~50%),

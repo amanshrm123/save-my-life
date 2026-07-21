@@ -2,6 +2,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:flutter/widgets.dart';
 
 import '../../core/clock.dart';
+import '../../core/theme.dart';
 
 /// Zone B of the Play screen (docs/design/play-screen-skeleton-v1.md §1):
 /// the one moving/time element on screen, driven by a single [Ticker] that
@@ -9,10 +10,14 @@ import '../../core/clock.dart';
 /// measurement uses (architecture v1 §1.2) — so display latency is a
 /// constant offset, not drifting noise.
 ///
-/// Bare form for this phase: a single vertical line sweeping left-to-right
-/// across the zone as the current round approaches its target time. No
-/// color ramps, no target-zone highlighting — that is explicitly Days 3-5
-/// scope (play-screen-skeleton-v1.md §3).
+/// A tick sweeping left-to-right across a bordered track as the current
+/// round approaches its target time — the same paper/ink chrome as the
+/// life bar and numplate (play-loop-v1.md §3), so it reads as a deliberate
+/// progress lane rather than a stray floating line. player-reviewer
+/// flagged the prior bare version (no track, no context) as looking like
+/// unexplained render debris next to the now-chromed numplate. Still no
+/// color ramps, no target-zone highlighting — that remains out of scope
+/// (play-screen-skeleton-v1.md §3).
 class IndicatorWidget extends StatefulWidget {
   const IndicatorWidget({
     super.key,
@@ -82,6 +87,11 @@ class _IndicatorPainter extends CustomPainter {
   final int roundStartMicros;
   final int targetDurationMicros;
 
+  /// Lane height — a slim horizontal track centered in the available
+  /// vertical space, matching the life bar's track thickness (§3.1) so the
+  /// two bars read as part of the same visual system.
+  static const double _laneHeight = 16;
+
   @override
   void paint(Canvas canvas, Size size) {
     final int elapsedInRound = clock.elapsedMicroseconds - roundStartMicros;
@@ -89,11 +99,35 @@ class _IndicatorPainter extends CustomPainter {
         ? 0.0
         : (elapsedInRound / targetDurationMicros).clamp(0.0, 1.0);
 
-    final double x = size.width * progress;
-    final Paint linePaint = Paint()
-      ..color = const Color(0xFF000000)
-      ..strokeWidth = 4;
-    canvas.drawLine(Offset(x, 0), Offset(x, size.height), linePaint);
+    final double laneTop = (size.height - _laneHeight) / 2;
+    final Rect laneRect =
+        Rect.fromLTWH(0, laneTop, size.width, _laneHeight);
+    final RRect laneRRect =
+        RRect.fromRectAndRadius(laneRect, const Radius.circular(999));
+
+    final Paint trackFill = Paint()..color = AppColors.paper;
+    final Paint trackBorder = Paint()
+      ..color = AppColors.ink
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2;
+    canvas.drawRRect(laneRRect, trackFill);
+    canvas.drawRRect(laneRRect, trackBorder);
+
+    // The moving tick: a rounded vertical marker sliding along the lane,
+    // clamped so it never draws outside the track's rounded ends.
+    const double tickWidth = 6;
+    final double x =
+        (size.width * progress).clamp(tickWidth / 2, size.width - tickWidth / 2);
+    final Rect tickRect = Rect.fromCenter(
+      center: Offset(x, laneTop + _laneHeight / 2),
+      width: tickWidth,
+      height: _laneHeight - 4,
+    );
+    final Paint tickPaint = Paint()..color = AppColors.coral;
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(tickRect, const Radius.circular(3)),
+      tickPaint,
+    );
   }
 
   @override
