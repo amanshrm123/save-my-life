@@ -17,3 +17,17 @@ Each entry: what was found, where, why it's deferred (not a bug against current 
 **Why it's deferred, not a bug:** Days 1-2 scope was explicitly "prove the engine is wired correctly," not multi-touch handling — there's no spec for it yet, and Zone D's full-bottom-half tap zone was designed to remove *spatial* precision from the failure mode, not simultaneous-touch precision. Fixing this now would be solving a problem before it's been decided whether it's actually a problem worth solving.
 
 **Revisit:** before or during Days 3-5 feel-tuning (Gate 1), once real-device testing is possible — real touchscreens produce spurious secondary pointer-down events (palm contact, digitizer noise) often enough during rapid tapping that this could measurably affect how the tap *feels*, which is exactly what Gate 1 is judging. Decide then whether `TapSurface`/`RunController` should track pointer IDs and ignore a second simultaneous touch (a "first pointer wins per frame" guard), and who owns that call — likely `game-ux-designer` (does this affect feel?) plus `flutter-developer` (implementation).
+
+---
+
+## 2. The onboarding theme cascades into the still-bare Play/Countdown screens
+
+**Found:** on-device verification of the onboarding flow, 2026-07-21.
+
+**Where:** `lib/core/theme.dart`'s `buildAppTheme()` (new, introduced by the onboarding pass) sets a global `ThemeData`/`scaffoldBackgroundColor`. `lib/features/run/play_screen.dart` and `lib/features/run/countdown_view.dart` don't set their own explicit `Scaffold(backgroundColor: ...)`, so they now inherit the onboarding theme's mint-green background (`AppColors.bg`) instead of the plain neutral tone they rendered with before onboarding existed.
+
+**What happens:** visually, the Days 1-2/3-5 "bare debug" Play screen and countdown now pick up onboarding's real color palette by accident, not by design — the screen is still otherwise undecorated (debug text, flat gray tap zone) so it reads as a half-themed screen rather than a deliberate choice either way.
+
+**Why it's deferred, not a bug:** nothing was specified either way — the onboarding spec only covered onboarding screens, and the bare Play screen's original spec predates the theme entirely. No test asserts a specific background color for Play, so nothing is functionally broken.
+
+**Revisit:** whenever Play's own visual pass happens (the Days 6-10+ outcome/card work, or a dedicated Play-screen restyle) — decide deliberately whether Play should adopt `AppColors.bg` (consistent with onboarding) or keep a distinct tone, rather than leaving it as an unreviewed side-effect. `game-ux-designer` should make this call explicitly when Play's real visual spec is written, the same way onboarding's was.

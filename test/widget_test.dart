@@ -1,13 +1,24 @@
 // Widget-level tests for the Days 1-2 walking skeleton Play screen
 // (docs/design/play-screen-skeleton-v1.md).
 //
-// The first test is the original smoke test (four zones render). The rest
-// drive the *real* `PlayScreen` — real `TapSurface`/`Listener`, real
-// `RunController`, real `resolve()` — through actual simulated pointer
-// events (`tester.tap` / `tester.startGesture`, which both dispatch genuine
-// `PointerDownEvent`s through Flutter's hit-test + pointer-router pipeline,
-// landing on `TapSurface`'s `Listener.onPointerDown` exactly as a real touch
-// would — no shortcut that calls `RunController.registerTap()` directly).
+// The first test is the original smoke test (App() -> Play's four zones
+// render), now updated for the onboarding-flow-v1.md change: every launch
+// starts at `SplashScreen`, which only reaches `PlayScreen` once
+// `ProfileRepository.isOnboardingComplete` resolves `true` (the "returning
+// launch" path, currently routed to `PlayScreen` directly by the temporary
+// Home shim in `app/router.dart`). `AppShell` wrapped in an
+// `UncontrolledProviderScope` with a fake, already-complete profile is used
+// to swap in that fake so this test exercises the real top-level wiring
+// end-to-end rather than a first-launch onboarding chain
+// (that chain has its own dedicated tests in
+// test/features/onboarding/onboarding_widget_test.dart). The rest of this
+// file's tests drive the *real* `PlayScreen` — real `TapSurface`/
+// `Listener`, real `RunController`, real `resolve()` — through actual
+// simulated pointer events (`tester.tap` / `tester.startGesture`, which
+// both dispatch genuine `PointerDownEvent`s through Flutter's hit-test +
+// pointer-router pipeline, landing on `TapSurface`'s `Listener
+// .onPointerDown` exactly as a real touch would — no shortcut that calls
+// `RunController.registerTap()` directly).
 //
 // To make this deterministic (the production clock is a live `Stopwatch`,
 // and target durations are randomized across 3-20 *real* seconds — not
@@ -25,19 +36,50 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:timing_tap/app/app.dart';
+import 'package:timing_tap/features/onboarding/name_validator.dart';
+import 'package:timing_tap/features/persistence/hive_profile_repository.dart';
+import 'package:timing_tap/features/persistence/profile_repository.dart';
 import 'package:timing_tap/features/run/countdown_view.dart';
 import 'package:timing_tap/features/run/run_controller.dart';
 import 'package:timing_tap/features/timing_engine/tap_surface.dart';
 
 import 'support/fake_monotonic_clock.dart';
+import 'support/fake_profile_repository.dart';
 
 void main() {
   testWidgets(
-    'Play screen shows the countdown first, then the four zones once it '
-    'finishes',
+    'App() on a returning launch (onboarding already complete) shows '
+    "Splash, then the countdown, then the four zones once it finishes",
     (WidgetTester tester) async {
-      await tester.pumpWidget(const App());
+      final ProviderContainer container = ProviderContainer(
+        overrides: [
+          profileRepositoryProvider.overrideWith(
+            (ref) async =>
+                FakeProfileRepository(isOnboardingComplete: true)
+                    as ProfileRepository,
+          ),
+          nameValidatorProvider
+              .overrideWith((ref) async => NameValidator(const [])),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const AppShell(),
+        ),
+      );
       await tester.pump();
+
+      // Splash is up first (§3.2 — every launch, not just the first).
+      expect(find.text('3'), findsNothing);
+
+      // Clear Splash's 900ms minimum-display window and let the
+      // already-resolved init future's microtasks flush, then let the
+      // push-replacement transition into PlayScreen settle.
+      await tester.pump(const Duration(milliseconds: 900));
+      await tester.pumpAndSettle();
 
       // RunController.build() now starts in RunPhase.countdown
       // (play-screen-gate1-v1.md §1) — the four zones are not present yet.
