@@ -404,6 +404,12 @@ class _TapZone extends StatelessWidget {
     final Color fill = flashBand == null
         ? AppColors.coral
         : (flashBand == TimingBand.miss ? AppColors.red : AppColors.green);
+    // The "TAP" label's text-shadow must match the current fill, not stay
+    // a fixed coral tone — a coral shadow on a green/red flash background
+    // reads as a mismatch (tester pass, on-device finding).
+    final Color labelShadow = flashBand == null
+        ? AppColors.coralDark
+        : (flashBand == TimingBand.miss ? AppColors.redDark : AppColors.greenDark);
 
     return Container(
       key: const Key('zoneDContainer'),
@@ -420,14 +426,14 @@ class _TapZone extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text(
+            Text(
               'TAP',
               style: TextStyle(
                 fontSize: 15,
                 fontWeight: FontWeight.w700,
                 color: Colors.white,
                 shadows: [
-                  Shadow(color: AppColors.coralDark, offset: Offset(0, 1.5)),
+                  Shadow(color: labelShadow, offset: const Offset(0, 1.5)),
                 ],
               ),
             ),

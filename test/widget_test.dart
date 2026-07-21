@@ -601,6 +601,14 @@ void main() {
       return (container.decoration as BoxDecoration?)?.color;
     }
 
+    // Regression: the "TAP" label's text-shadow must track the current
+    // flash state, not stay a fixed coral tone that mismatches on a
+    // green/red background (tester on-device finding, play-loop-v1.md §3.3).
+    Color? currentTapLabelShadow(WidgetTester tester) {
+      final Text tap = tester.widget<Text>(find.text('TAP'));
+      return tap.style?.shadows?.first.color;
+    }
+
     testWidgets(
       'flashes green on a hit and clears to neutral after exactly 120ms',
       (tester) async {
@@ -615,6 +623,7 @@ void main() {
         await tester.pump();
 
         expect(currentTapSurfaceColor(tester), AppColors.green);
+        expect(currentTapLabelShadow(tester), AppColors.greenDark);
         // Pill copy is sourced from TimingConfig, not a hardcoded literal
         // (play-loop-v1.md §0.4 flagged the mockup's own copy as
         // inconsistent with real config values) — assert it here too, not
@@ -643,6 +652,7 @@ void main() {
       await tester.pump();
 
       expect(currentTapSurfaceColor(tester), AppColors.red);
+      expect(currentTapLabelShadow(tester), AppColors.redDark);
       // Sign is rendered (§3.2: "render the sign, e.g. 'MISS -4%'") and
       // sourced from TimingConfig, not hardcoded.
       expect(

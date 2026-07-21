@@ -18,6 +18,12 @@ class AppColors {
   static const Color green = Color(0xFF2FBF71);
   static const Color greenDark = Color(0xFF1F9C58);
   static const Color red = Color(0xFFF0483E);
+  // Matches the mockup's own final-band red button shadow
+  // (`text-shadow:0 1.5px 0 #b8362e`, screen-library-v3.html) — used for
+  // the "TAP" label's shadow during a Miss flash so it doesn't keep a
+  // coral-toned shadow on a red background (play-loop-v1.md §3.3 review
+  // finding, tester pass).
+  static const Color redDark = Color(0xFFB8362E);
   static const Color mute = Color(0xFF7B8A86);
 
   /// Countdown gold-circle fill (docs/design/play-loop-v1.md §2/§9) — new
