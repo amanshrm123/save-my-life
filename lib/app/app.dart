@@ -5,7 +5,7 @@ import '../core/theme.dart';
 import 'splash_screen.dart';
 
 // Re-exported for backward compatibility with existing test/production
-// imports that reach `PlayScreen`/`tapFlashColorProvider` via `app/app.dart`
+// imports that reach `PlayScreen`/`tapFlashBandProvider` via `app/app.dart`
 // — the widgets themselves now live in `features/run/play_screen.dart`
 // (moved out so `router.dart`/onboarding screens can reach `PlayScreen`
 // without importing this file and creating an import cycle).

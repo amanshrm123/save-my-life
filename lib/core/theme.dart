@@ -20,6 +20,13 @@ class AppColors {
   static const Color red = Color(0xFFF0483E);
   static const Color mute = Color(0xFF7B8A86);
 
+  /// Countdown gold-circle fill (docs/design/play-loop-v1.md §2/§9) — new
+  /// token needed for the named-countdown reskin. `goldDark` is added
+  /// alongside for later reuse (rewarded/skins work, out of scope here but
+  /// cheap to add now per §9's own note).
+  static const Color gold = Color(0xFFFFC23C);
+  static const Color goldDark = Color(0xFFE5A516);
+
   /// Splash tagline color (§2.4) — a slightly darker mute than [mute],
   /// matching the mockup's `.d` context on the mint background.
   static const Color splashTagline = Color(0xFF3F5651);

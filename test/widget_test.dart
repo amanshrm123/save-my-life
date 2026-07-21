@@ -36,6 +36,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:timing_tap/app/app.dart';
+import 'package:timing_tap/core/theme.dart';
+import 'package:timing_tap/core/timing_config.dart';
 import 'package:timing_tap/features/onboarding/name_validator.dart';
 import 'package:timing_tap/features/persistence/hive_profile_repository.dart';
 import 'package:timing_tap/features/persistence/profile_repository.dart';
@@ -93,7 +95,10 @@ void main() {
       await tester.pump();
 
       expect(find.textContaining('LIFE:'), findsOneWidget);
-      expect(find.textContaining('TARGET:'), findsOneWidget);
+      // The bare "TARGET: {n}s" debug text is gone — play-loop-v1.md §3.2
+      // replaces it with the numplate's "Tap at" label + chrome around the
+      // same number.
+      expect(find.text('Tap at'), findsOneWidget);
       expect(find.textContaining('DELTA:'), findsOneWidget);
       expect(find.textContaining('BAND:'), findsOneWidget);
       expect(find.text('TAP'), findsOneWidget);
@@ -216,6 +221,101 @@ void main() {
         expect(find.text('1'), findsNothing);
         expect(find.text('TAP'), findsOneWidget);
         expect(container.read(runControllerProvider).phase, RunPhase.playing);
+      },
+    );
+  });
+
+  group('Countdown header (play-loop-v1.md §2)', () {
+    Future<ProviderContainer> pumpCountdown(
+      WidgetTester tester, {
+      required FakeProfileRepository repository,
+    }) async {
+      final ProviderContainer container = ProviderContainer(
+        overrides: [
+          clockProvider.overrideWithValue(FakeMonotonicClock(0)),
+          profileRepositoryProvider.overrideWith(
+            (ref) async => repository as ProfileRepository,
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const MaterialApp(home: CountdownView()),
+        ),
+      );
+      // Two pumps: the first builds with `profileRepositoryProvider` still
+      // `AsyncLoading` (the fallback "Get ready" header, same as it would
+      // render mid-resolution); the second flushes the already-resolved
+      // fake repository's future and rebuilds with `AsyncData`.
+      await tester.pump();
+      await tester.pump();
+      return container;
+    }
+
+    /// Unmounts the widget tree before the countdown's 1s `Timer.periodic`
+    /// would otherwise fire mid-test — `CountdownView.dispose()` cancels it
+    /// — so these header-only tests don't need to drain the full 3s
+    /// sequence (unlike the timing-behavior tests in the group above) and
+    /// don't leak a pending `Timer` into test teardown.
+    Future<void> tearDownCountdown(WidgetTester tester) async {
+      await tester.pumpWidget(const SizedBox.shrink());
+    }
+
+    testWidgets(
+      'a named player sees "Hey {name}, get ready" with the name in a '
+      'colored span',
+      (tester) async {
+        await pumpCountdown(
+          tester,
+          repository: FakeProfileRepository(name: 'Aman'),
+        );
+
+        expect(
+          find.text('Hey Aman, get ready', findRichText: true),
+          findsOneWidget,
+        );
+        expect(find.text('Get ready'), findsNothing);
+
+        await tearDownCountdown(tester);
+      },
+    );
+
+    testWidgets(
+      'a no-name player sees a plain "Get ready" fallback, not a broken or '
+      'partially-composed header',
+      (tester) async {
+        await pumpCountdown(tester, repository: FakeProfileRepository());
+
+        expect(find.text('Get ready'), findsOneWidget);
+        expect(find.textContaining('Hey'), findsNothing);
+
+        await tearDownCountdown(tester);
+      },
+    );
+
+    testWidgets(
+      'the gold circle still shows the current countdown digit alongside '
+      'the name-aware header',
+      (tester) async {
+        await pumpCountdown(
+          tester,
+          repository: FakeProfileRepository(name: 'Priya'),
+        );
+
+        expect(
+          find.text('Hey Priya, get ready', findRichText: true),
+          findsOneWidget,
+        );
+        expect(find.text('3'), findsOneWidget);
+        expect(
+          find.text('First target drops when it hits zero.'),
+          findsOneWidget,
+        );
+
+        await tearDownCountdown(tester);
       },
     );
   });
@@ -488,21 +588,24 @@ void main() {
       await tester.pump();
     }
 
+    // Zone D's chrome (play-loop-v1.md §3.3) now renders via
+    // `BoxDecoration.color` rather than `Container.color` directly (needed
+    // for the border/shadow/radius chrome), and the Listener subtree also
+    // contains two legend-pill `Container`s alongside the main one — so the
+    // main tap-zone container is looked up by its dedicated test key
+    // (`Key('zoneDContainer')`, `play_screen.dart`) rather than "the one
+    // Container under TapSurface" (no longer unique).
     Color? currentTapSurfaceColor(WidgetTester tester) {
-      final Container container = tester.widget<Container>(
-        find.descendant(
-          of: find.byType(TapSurface),
-          matching: find.byType(Container),
-        ),
-      );
-      return container.color;
+      final Container container =
+          tester.widget<Container>(find.byKey(const Key('zoneDContainer')));
+      return (container.decoration as BoxDecoration?)?.color;
     }
 
     testWidgets(
       'flashes green on a hit and clears to neutral after exactly 120ms',
       (tester) async {
         await pumpScreen(tester);
-        expect(currentTapSurfaceColor(tester), const Color(0xFFDDDDDD));
+        expect(currentTapSurfaceColor(tester), AppColors.coral);
 
         final RunState before = container.read(runControllerProvider);
         final int targetMicros =
@@ -511,13 +614,21 @@ void main() {
         await tester.tap(find.byType(TapSurface));
         await tester.pump();
 
-        expect(currentTapSurfaceColor(tester), const Color(0xFF4CAF50));
+        expect(currentTapSurfaceColor(tester), AppColors.green);
+        // Pill copy is sourced from TimingConfig, not a hardcoded literal
+        // (play-loop-v1.md §0.4 flagged the mockup's own copy as
+        // inconsistent with real config values) — assert it here too, not
+        // just the ON POINT case already covered below.
+        expect(
+          find.text('PERFECT +${TimingConfig.perfectLifeDelta.toInt()}%'),
+          findsOneWidget,
+        );
 
         await tester.pump(const Duration(milliseconds: 119));
-        expect(currentTapSurfaceColor(tester), const Color(0xFF4CAF50));
+        expect(currentTapSurfaceColor(tester), AppColors.green);
 
         await tester.pump(const Duration(milliseconds: 1));
-        expect(currentTapSurfaceColor(tester), const Color(0xFFDDDDDD));
+        expect(currentTapSurfaceColor(tester), AppColors.coral);
       },
     );
 
@@ -531,10 +642,138 @@ void main() {
       await tester.tap(find.byType(TapSurface));
       await tester.pump();
 
-      expect(currentTapSurfaceColor(tester), const Color(0xFFE53935));
+      expect(currentTapSurfaceColor(tester), AppColors.red);
+      // Sign is rendered (§3.2: "render the sign, e.g. 'MISS -4%'") and
+      // sourced from TimingConfig, not hardcoded.
+      expect(
+        find.text('MISS ${TimingConfig.missLifeDelta.toInt()}%'),
+        findsOneWidget,
+      );
 
       await tester.pump(const Duration(milliseconds: 120));
-      expect(currentTapSurfaceColor(tester), const Color(0xFFDDDDDD));
+      expect(currentTapSurfaceColor(tester), AppColors.coral);
+    });
+
+    testWidgets(
+      'flashes green on an on-point hit too (both Perfect and On-point '
+      'collapse to the same hit color on Zone D, per Gate 1 §3 — only the '
+      'floating flash pill (not this wash) distinguishes the two bands)',
+      (tester) async {
+        await pumpScreen(tester);
+
+        final RunState before = container.read(runControllerProvider);
+        final int targetMicros =
+            before.roundStartMicros + before.targetDurationMicros;
+        clock.setMicros(targetMicros + 50000); // On-point (inside +-80ms)
+        await tester.tap(find.byType(TapSurface));
+        await tester.pump();
+
+        expect(currentTapSurfaceColor(tester), AppColors.green);
+        expect(find.textContaining('ON POINT'), findsOneWidget);
+
+        await tester.pump(const Duration(milliseconds: 120));
+      },
+    );
+  });
+
+  group('Zone A three-tier life bar (play-loop-v1.md §3.1)', () {
+    late FakeMonotonicClock clock;
+    late ProviderContainer container;
+
+    setUp(() {
+      clock = FakeMonotonicClock(0);
+      container = ProviderContainer(
+        overrides: [clockProvider.overrideWithValue(clock)],
+      );
+    });
+
+    tearDown(() {
+      container.dispose();
+    });
+
+    Future<void> pumpScreen(WidgetTester tester) async {
+      await tester.pumpWidget(
+        UncontrolledProviderScope(
+          container: container,
+          child: const MaterialApp(home: PlayScreen()),
+        ),
+      );
+      await tester.pump();
+      container.read(runControllerProvider.notifier).beginPlaying();
+      await tester.pump();
+    }
+
+    Color? lifeBarFillColor(WidgetTester tester) {
+      final Container fill =
+          tester.widget<Container>(find.byKey(const Key('lifeBarFill')));
+      return (fill.decoration as BoxDecoration?)?.color;
+    }
+
+    /// Registers [count] Perfect taps (+3% each) or, if [miss] is true,
+    /// Miss taps (-4% each) through the real `RunController`/`resolve()`
+    /// path, pumping past each tap's 120ms flash-clear timer so none linger
+    /// pending into the next tap/test teardown.
+    Future<void> tapRepeatedly(
+      WidgetTester tester,
+      int count, {
+      bool miss = false,
+    }) async {
+      for (int i = 0; i < count; i++) {
+        final RunState before = container.read(runControllerProvider);
+        final int targetMicros =
+            before.roundStartMicros + before.targetDurationMicros;
+        clock.setMicros(miss ? targetMicros + 500000 : targetMicros + 10000);
+        await tester.tap(find.byType(TapSurface));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 120));
+      }
+    }
+
+    testWidgets('life bar fills green when life% > 50', (tester) async {
+      await pumpScreen(tester);
+      await tapRepeatedly(tester, 1); // 50 -> 53, one Perfect tap
+      expect(container.read(runControllerProvider).lifePct, 53.0);
+      expect(lifeBarFillColor(tester), AppColors.green);
+    });
+
+    testWidgets(
+      'life bar fills coral when 25 < life% <= 50 (starting life 50% '
+      'already sits in this tier)',
+      (tester) async {
+        await pumpScreen(tester);
+        expect(container.read(runControllerProvider).lifePct, 50.0);
+        expect(lifeBarFillColor(tester), AppColors.coral);
+      },
+    );
+
+    testWidgets('life bar fills coral just above the 25% floor', (tester) async {
+      await pumpScreen(tester);
+      // 50 -> 26 via 6 Miss taps (50 - 6*4 = 26), still inside (25, 50].
+      await tapRepeatedly(tester, 6, miss: true);
+      expect(container.read(runControllerProvider).lifePct, 26.0);
+      expect(lifeBarFillColor(tester), AppColors.coral);
+    });
+
+    testWidgets('life bar fills red when life% <= 25', (tester) async {
+      await pumpScreen(tester);
+      // 50 -> 22 via 7 Miss taps (50 - 7*4 = 22), inside the <= 25 tier.
+      await tapRepeatedly(tester, 7, miss: true);
+      expect(container.read(runControllerProvider).lifePct, 22.0);
+      expect(lifeBarFillColor(tester), AppColors.red);
+    });
+
+    testWidgets('life bar fills red at exactly 0%', (tester) async {
+      await pumpScreen(tester);
+      await tapRepeatedly(tester, 20, miss: true); // clamps well before 20
+      expect(container.read(runControllerProvider).lifePct, 0.0);
+      expect(lifeBarFillColor(tester), AppColors.red);
+    });
+
+    testWidgets('life bar fills green at exactly 100%', (tester) async {
+      await pumpScreen(tester);
+      await tapRepeatedly(tester, 20); // clamps well before 20
+      expect(container.read(runControllerProvider).lifePct, 100.0);
+      expect(lifeBarFillColor(tester), AppColors.green);
     });
   });
 }
