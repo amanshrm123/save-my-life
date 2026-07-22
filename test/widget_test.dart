@@ -716,24 +716,48 @@ void main() {
         // numplate.
         RunState before = container.read(runControllerProvider);
         int targetMicros = before.roundStartMicros + before.targetDurationMicros;
-        clock.setMicros(targetMicros + 10000);
+        clock.setMicros(targetMicros + 10000); // Perfect
         await tester.tap(_findButtonTapSurface());
-        await tester.pump(); // flight now mid-flight (t == 0, just launched)
+        await tester.pump();
 
-        // Second tap, on the numplate, while the pill is still animating
-        // over/near that region.
+        // Pump ~200ms into the 460ms flight. NOT the 260-370ms dwell window
+        // the pill's arrival anchor "at rest" implies: the arrival anchor is
+        // 40dp above the numplate's top edge while the numplate's own padded
+        // `TapSurface` hit region only extends 24dp above the numplate box
+        // (play-loop-v3.md §1.3/§2.2) — a deliberate ~16dp clearance so the
+        // pill never visually sits on the numplate once it's settled. The
+        // pill's box genuinely overlaps the numplate's hit region only while
+        // still travelling, roughly 90-215ms in; 200ms sits safely inside
+        // that measured overlap window (confirmed via `tester.getRect` on
+        // both the pill's `Text` ancestor `Container` and
+        // `_findNumplateTapSurface()` while iterating this test).
+        await tester.pump(const Duration(milliseconds: 200));
+
+        // Tap near the top edge of the numplate's padded hit region — inside
+        // both the `TapSurface`'s own bounds AND (at this instant) the
+        // flying pill's rendered box, so a passing test actually proves the
+        // tap reached the `TapSurface` through the overlapping pill, not
+        // just near it.
+        final Rect numplateRect = tester.getRect(_findNumplateTapSurface());
+        final Offset tapPoint =
+            Offset(numplateRect.center.dx, numplateRect.top + 5);
+
+        // Second tap, deliberately scored as a Miss (rather than reusing
+        // the first tap's Perfect) — if the flight layer *had* intercepted
+        // this tap, `lastBand`/`lastDeltaMs` would silently stay at the
+        // first tap's Perfect/10ms, which an identical-band assertion
+        // wouldn't catch. A Miss can only appear here if this second press
+        // truly reached the numplate's `TapSurface`.
         before = container.read(runControllerProvider);
         targetMicros = before.roundStartMicros + before.targetDurationMicros;
-        clock.setMicros(targetMicros + 10000);
-        await tester.tap(_findNumplateTapSurface());
+        clock.setMicros(targetMicros + 1000000000); // ~1000s away -> Miss
+        await tester.tapAt(tapPoint);
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 120));
 
-        // If the flight layer had intercepted the second tap, lastDeltaMs/
-        // lastBand would not have updated again for this fresh press.
         final RunState after = container.read(runControllerProvider);
-        expect(after.lastBand, TimingBand.perfect);
-        expect(after.lastDeltaMs, 10);
+        expect(after.lastBand, TimingBand.miss);
+        expect(after.lastDeltaMs, 1000000);
       },
     );
   });

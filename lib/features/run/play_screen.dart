@@ -139,12 +139,34 @@ class _PlayScreenState extends ConsumerState<PlayScreen>
     TweenSequenceItem(weight: 89.1, tween: ConstantTween(1.0)),
   ]).animate(_flightController);
 
+  /// The single, screen-lifetime `CurvedAnimation` behind
+  /// [_positionAnimation]. `CurvedAnimation`'s constructor calls
+  /// `parent.addStatusListener(...)` and the only way to remove that
+  /// listener is `CurvedAnimation.dispose()` — constructing a fresh one on
+  /// every tap (as [_launchFlight] used to) would leak one status listener
+  /// per scored tap onto `_flightController` for the rest of the run, since
+  /// nothing ever disposes the old ones. Built once here (parented to
+  /// `_flightController` with the fixed travel `Interval`, play-loop-v3.md
+  /// §1.2/§1.3) and disposed alongside the controller in [dispose]; each tap
+  /// only rebuilds the `Tween<double>` (the begin/end anchors, which do
+  /// change per tap) and re-`animate()`s it onto this one reused curve.
+  late final CurvedAnimation _flightCurve = CurvedAnimation(
+    parent: _flightController,
+    // 0.565 * 460ms ~= 260ms travel window (play-loop-v3.md §1.2); Interval
+    // pins its output at 1.0 for any t past 0.565, so the position is
+    // automatically held at the arrival point for the dwell/fade-out phases
+    // with no extra clamping logic needed.
+    curve: const Interval(0.0, 0.565, curve: Curves.easeOut),
+  );
+
   /// Position (Y only — button and numplate share the same horizontal
   /// center in this single-column layout, so the general `Tween<Offset>`
   /// architecture frames this as collapses to one dimension, play-loop-v3.md
-  /// §1.3). Rebuilt fresh on every tap in [_launchFlight] since the
-  /// begin/end anchors are only known once `registerTap` has resolved and
-  /// the real `RenderBox` positions can be measured. `null` before the
+  /// §1.3). The `Tween` itself is rebuilt fresh on every tap in
+  /// [_launchFlight] since the begin/end anchors are only known once
+  /// `registerTap` has resolved and the real `RenderBox` positions can be
+  /// measured — but it's always re-`animate()`d onto the single reused
+  /// [_flightCurve], never a fresh `CurvedAnimation`. `null` before the
   /// first tap of the run — the flight layer simply isn't visible yet
   /// (opacity starts at the controller's rest value, 0).
   Animation<double>? _positionAnimation;
@@ -175,6 +197,7 @@ class _PlayScreenState extends ConsumerState<PlayScreen>
   @override
   void dispose() {
     _pendingFlashClearTimer?.cancel();
+    _flightCurve.dispose();
     _flightController.dispose();
     super.dispose();
   }
@@ -185,20 +208,32 @@ class _PlayScreenState extends ConsumerState<PlayScreen>
   /// (the per-`Listener` hard rule is unchanged), but both feed this one
   /// `registerTap` path.
   void _handleTap(int pressMicros) {
+    // Captured before calling registerTap so the no-op check below is
+    // independent of `lastBand` (which persists across taps — only
+    // `startNewCycle()` clears it — and so cannot distinguish "this tap
+    // was a no-op" from "the *previous* tap already set a band"). Checking
+    // the phase directly matches the exact guard `registerTap` itself uses
+    // (architecture v3 §3.3: `if (state.phase != RunPhase.playing) return`),
+    // so this stays correct even if a future change to widget structure ever
+    // let a `TapSurface` outlive `phase == playing`.
+    final RunPhase phaseBeforeTap = ref.read(runControllerProvider).phase;
     ref.read(runControllerProvider.notifier).registerTap(pressMicros);
+
+    if (phaseBeforeTap != RunPhase.playing) {
+      // registerTap is a no-op when phase != playing (architecture v3
+      // §3.3) — both TapSurfaces only exist while phase == playing, so
+      // this shouldn't be reachable, but guard rather than crash.
+      return;
+    }
 
     // Flash/animation react to the already-resolved tap result — strictly
     // after registerTap returns. Never move this into TapSurface's
     // onPointerDown or timing_engine.resolve() (play-screen-gate1-v1.md §3 /
     // architecture v3 §7.2, hard rule, unchanged).
     final RunState afterTap = ref.read(runControllerProvider);
-    final TimingBand? band = afterTap.lastBand;
-    if (band == null) {
-      // registerTap is a no-op when phase != playing (architecture v3
-      // §3.3) — both TapSurfaces only exist while phase == playing, so
-      // this shouldn't be reachable, but guard rather than crash.
-      return;
-    }
+    // Non-null: registerTap always sets lastBand whenever it actually
+    // processes a tap (phaseBeforeTap == playing, checked above).
+    final TimingBand band = afterTap.lastBand!;
     final bool isHit = band != TimingBand.miss;
 
     ref.read(tapFlashBandProvider.notifier).state = band;
@@ -259,16 +294,13 @@ class _PlayScreenState extends ConsumerState<PlayScreen>
     final double arrivalTop = numplateTopY - 40 - pillHeight;
     _flightRestTop = launchTop;
 
-    _positionAnimation = Tween<double>(begin: launchTop, end: arrivalTop).animate(
-      CurvedAnimation(
-        parent: _flightController,
-        // 0.565 * 460ms ~= 260ms travel window (play-loop-v3.md §1.2);
-        // Interval pins its output at 1.0 for any t past 0.565, so the
-        // position is automatically held at the arrival point for the
-        // dwell/fade-out phases with no extra clamping logic needed.
-        curve: const Interval(0.0, 0.565, curve: Curves.easeOut),
-      ),
-    );
+    // Reuses the single screen-lifetime [_flightCurve] — never construct a
+    // fresh `CurvedAnimation` here (that would add another status listener
+    // to `_flightController` on every tap with no way to remove it; see
+    // [_flightCurve]'s doc comment). Only the `Tween`'s begin/end anchors
+    // are rebuilt per tap.
+    _positionAnimation =
+        Tween<double>(begin: launchTop, end: arrivalTop).animate(_flightCurve);
 
     // Snap-away restart, never queued or blended: forward(from: 0.0)
     // unconditionally resets the controller regardless of its current
