@@ -14,6 +14,7 @@ class HiveProfileRepository implements ProfileRepository {
   static const String boxName = 'profile';
   static const String _keyOnboardingComplete = 'isOnboardingComplete';
   static const String _keyName = 'name';
+  static const String _keyDeathCount = 'deathCount';
 
   final Box<dynamic> _box;
 
@@ -40,6 +41,14 @@ class HiveProfileRepository implements ProfileRepository {
     if (name != null) {
       await _box.put(_keyName, name);
     }
+  }
+
+  @override
+  int get deathCount => (_box.get(_keyDeathCount) as int?) ?? 0;
+
+  @override
+  Future<void> incrementDeathCount() async {
+    await _box.put(_keyDeathCount, deathCount + 1);
   }
 }
 

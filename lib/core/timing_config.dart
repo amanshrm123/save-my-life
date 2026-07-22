@@ -16,16 +16,25 @@ class TimingConfig {
   /// Beyond this is a Miss.
   static const int onPointMs = 80;
 
-  /// Life gained on a Perfect tap.
+  /// Life gained on a Perfect tap. Fixed, never rolled (architecture v3
+  /// §4.1: Perfect is the guaranteed elite-tolerance reward ceiling — if it
+  /// were also rolled, a low Perfect roll could land below a lucky On-point
+  /// roll, inverting the tier ordering).
   static const double perfectLifeDelta = 3.0;
 
-  /// Life gained on an On-point tap.
-  static const double onPointLifeDelta = 2.0;
+  /// On-point life-delta range (architecture v3 §4.1/§4.4): rolled per tap,
+  /// uniformly, over the whole-integer set `{2.0, 3.0}` via
+  /// `timing_engine.lifeDeltaFor`. Replaces the old fixed `onPointLifeDelta`.
+  static const double onPointLifeDeltaMin = 2.0;
+  static const double onPointLifeDeltaMax = 3.0;
 
-  /// Life lost on a Miss. Discovery §3a specifies a range of -3% to -5%;
-  /// -4% is picked here as a fixed placeholder within that range and is
-  /// tunable during Days 3-5 playtesting.
-  static const double missLifeDelta = -4.0;
+  /// Miss life-delta range (architecture v3 §4.1/§4.4): rolled per tap,
+  /// uniformly, over the whole-integer set `{-5.0, -4.0, -3.0}` via
+  /// `timing_engine.lifeDeltaFor`. Replaces the old fixed `missLifeDelta`
+  /// (`-4.0`), resolving that constant's own stale "picked as a fixed
+  /// placeholder within the range" comment.
+  static const double missLifeDeltaMin = -5.0;
+  static const double missLifeDeltaMax = -3.0;
 
   /// Adaptive tightening coefficient `k` (Discovery §3a: `HIT_MS = BASE_HIT
   /// - (life% * k)`). Scaffolded per architecture's scope guard (§4:

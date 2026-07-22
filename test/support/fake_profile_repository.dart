@@ -14,16 +14,24 @@ class FakeProfileRepository implements ProfileRepository {
   FakeProfileRepository({
     bool isOnboardingComplete = false,
     String? name,
+    int deathCount = 0,
   })  : _isOnboardingComplete = isOnboardingComplete,
-        _name = name;
+        _name = name,
+        _deathCount = deathCount;
 
   bool _isOnboardingComplete;
   String? _name;
+  int _deathCount;
 
   /// Number of times `markOnboardingComplete` was called — lets tests
   /// assert persistence happened exactly once, not merely that state ended
   /// up correct.
   int markOnboardingCompleteCallCount = 0;
+
+  /// Number of times `incrementDeathCount` was called — mirrors
+  /// `markOnboardingCompleteCallCount` so tests can assert a death was
+  /// persisted exactly once (architecture v3 §3.4/§5).
+  int incrementDeathCountCallCount = 0;
 
   @override
   bool get isOnboardingComplete => _isOnboardingComplete;
@@ -32,11 +40,20 @@ class FakeProfileRepository implements ProfileRepository {
   String? get name => _name;
 
   @override
+  int get deathCount => _deathCount;
+
+  @override
   Future<void> markOnboardingComplete({String? name}) async {
     markOnboardingCompleteCallCount++;
     _isOnboardingComplete = true;
     if (name != null) {
       _name = name;
     }
+  }
+
+  @override
+  Future<void> incrementDeathCount() async {
+    incrementDeathCountCallCount++;
+    _deathCount++;
   }
 }

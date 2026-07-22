@@ -24,17 +24,13 @@ import '../timing_engine/timing_engine.dart';
 /// Zone D's wash still only needs the collapsed hit/miss color.
 ///
 /// Set (and cleared 120ms later by a plain `Timer`) **after** `registerTap`
-/// resolves in `PlayScreen`'s `onTapMicros` — never inside `TapSurface`'s
+/// resolves in `PlayScreen`'s tap handler — never inside `TapSurface`'s
 /// `onPointerDown` or `timing_engine.resolve()`
 /// (docs/design/play-screen-gate1-v1.md §3, hard rule — still unchanged by
-/// the play-loop-v1.md visual reskin).
+/// the v2/v3 visual passes). This wash is fully independent of the v3 flying
+/// result pill's own 460ms animation clock (play-loop-v3.md §1.4) — they're
+/// two separate triggers reading the same tap result.
 final tapFlashBandProvider = StateProvider<TimingBand?>((ref) => null);
-
-/// Tracks the pending flash-clear timer so a rapid second tap can cancel
-/// the first tap's clear instead of racing it — otherwise tap A's 120ms
-/// timer fires mid-way through tap B's flash and cuts it short. `PlayScreen`
-/// is the single root Play screen, so a module-level timer is safe.
-Timer? _pendingFlashClearTimer;
 
 /// Life% tier thresholds (docs/design/play-loop-v1.md §3.1): a three-tier
 /// read replacing the old binary >25%/<=25% threshold. `> 50` green,
@@ -46,10 +42,13 @@ Color _lifeBarColor(double lifePct) {
   return AppColors.red;
 }
 
-/// Formats a `TimingConfig` life-delta as compact signed copy matching the
-/// mockup's "+3%"/"-4%" style (§3.2/§3.3 — "render the sign, e.g. 'MISS
-/// -4%' — don't drop it"). Whole-number values print without a trailing
-/// ".0"; any genuinely fractional value keeps its decimal.
+/// Formats a life-delta value as compact signed copy matching the mockup's
+/// "+3%"/"-4%" style (§3.2/§3.3 — "render the sign, e.g. 'MISS -4%' — don't
+/// drop it"). Whole-number values print without a trailing ".0"; any
+/// genuinely fractional value keeps its decimal. Since architecture v3 §4
+/// made On-point/Miss deltas ranged, callers now pass the *actual* rolled
+/// value (`RunState.lastLifeDelta`) rather than a `TimingConfig` constant —
+/// this formatter itself is unchanged, only what's passed to it.
 String _formatSignedLifeDelta(double value) {
   final double magnitude = value.abs();
   final String magnitudeText = magnitude == magnitude.roundToDouble()
@@ -58,33 +57,237 @@ String _formatSignedLifeDelta(double value) {
   return '${value < 0 ? '-' : '+'}$magnitudeText';
 }
 
+/// Formats a life-delta *range* for the static legend pills (architecture
+/// v3 §4.3, play-loop-v3.md §4): `"+2 to +3%"` / `"-5 to -3%"` — spelled-out
+/// "to", never a dash (a dash-joined Miss range like "-5-3%" is ambiguous at
+/// a glance). Ascending order (min then max) for both pills, matching
+/// `TimingConfig`'s own min→max naming.
+String _formatLifeDeltaRange(double min, double max) =>
+    '${_formatSignedLifeDelta(min)} to ${_formatSignedLifeDelta(max)}%';
+
 /// The Play screen. Branches on `RunState.phase`: `countdown` renders the
-/// full-screen 3-2-1 (`CountdownView`); `playing` renders the exact-fidelity
-/// rebuild from docs/design/play-loop-v2.md §3 — a content-hugging chips
-/// row, a content-hugging life bar block, a single `Expanded(flex: 1)`
-/// center zone (numplate + debug readout + flash pill), and a
-/// content-hugging bottom control bar (legend pills + the compact tap
-/// button). This replaces the prior four-way `Expanded(flex: 20/20/10/50)`
-/// Column (docs/design/play-screen-skeleton-v1.md §1 /
-/// docs/design/play-loop-v1.md §3) entirely — see play-loop-v2.md §3 for
-/// the founder-directed rationale (fidelity over the old ergonomic/
-/// data-availability calls). The `Listener`-based tap capture and all
-/// timing/state logic in `run_controller.dart`/`timing_engine.dart` are
-/// unchanged by this pass (play-loop-v2.md §0).
+/// full-screen 3-2-1 (`CountdownView`); `dead` renders the minimal
+/// `_DeathPlaceholder` (architecture v3 §3.5, play-loop-v3.md §3) — a
+/// full-screen replacement, not a modal overlay, structurally identical to
+/// the `countdown` early-return; `playing` renders the exact-fidelity
+/// rebuild from docs/design/play-loop-v2.md §3, extended by v3: chips now
+/// read the real persisted `deathCount` (item 1), life starts at 100%
+/// (item 2), the numplate is a second tap target (item 3), Hit/Miss deltas
+/// are rolled within ranges and the flash pill shows the actual rolled
+/// value (item 4), and the result pill flies from the tap button to the
+/// numplate via a `Stack` overlay + `AnimationController` (item 5,
+/// play-loop-v3.md §1) — the one element the Gate-1 animation ban is lifted
+/// for (architecture v3 §7).
+///
+/// Promoted from `ConsumerWidget` to `ConsumerStatefulWidget` (architecture
+/// v3 §7.3's suggested structure) purely to own the flight
+/// `AnimationController` and the `GlobalKey`s the flight math needs; no
+/// other behavior depends on this being stateful.
 ///
 /// Reached either from a fresh onboarding completion (§3.3's
 /// `submitName`/`skipNaming`) or, on a returning launch, via the
 /// **temporary Home shim** in `app/router.dart` (Home itself is a separate,
 /// not-yet-built spec — see that file for the marked hand-off point).
-class PlayScreen extends ConsumerWidget {
+class PlayScreen extends ConsumerStatefulWidget {
   const PlayScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<PlayScreen> createState() => _PlayScreenState();
+}
+
+class _PlayScreenState extends ConsumerState<PlayScreen>
+    with SingleTickerProviderStateMixin {
+  /// Tracks the pending flash-clear timer so a rapid second tap can cancel
+  /// the first tap's clear instead of racing it — otherwise tap A's 120ms
+  /// timer fires mid-way through tap B's flash and cuts it short. Moved
+  /// from a module-level variable to an instance field now that `PlayScreen`
+  /// is stateful (one `PlayScreen` instance per screen, same lifetime
+  /// guarantee as before).
+  Timer? _pendingFlashClearTimer;
+
+  /// Drives the flying result pill (play-loop-v3.md §1) — the one place in
+  /// the codebase the Gate-1 `AnimationController` ban is lifted
+  /// (architecture v3 §7). 460ms total: launch/travel overlap 0-260ms, dwell
+  /// 260-370ms, fade-out 370-460ms (§1.2).
+  late final AnimationController _flightController = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 460),
+  );
+
+  /// Opacity: fade in 0-50ms (weight 10.9), hold, fade out 370-460ms
+  /// (weight 19.6) — play-loop-v3.md §1.2, weights match the ms breakdown
+  /// exactly (10.9 / 69.5 / 19.6).
+  late final Animation<double> _opacityAnimation = TweenSequence<double>([
+    TweenSequenceItem(
+      weight: 10.9,
+      tween: Tween(begin: 0.0, end: 1.0).chain(CurveTween(curve: Curves.easeOut)),
+    ),
+    TweenSequenceItem(weight: 69.5, tween: ConstantTween(1.0)),
+    TweenSequenceItem(
+      weight: 19.6,
+      tween: Tween(begin: 1.0, end: 0.0).chain(CurveTween(curve: Curves.easeIn)),
+    ),
+  ]).animate(_flightController);
+
+  /// Scale: 0.85 -> 1.0 over the launch window only, then pinned at 1.0
+  /// (play-loop-v3.md §1.2).
+  late final Animation<double> _scaleAnimation = TweenSequence<double>([
+    TweenSequenceItem(
+      weight: 10.9,
+      tween: Tween(begin: 0.85, end: 1.0).chain(CurveTween(curve: Curves.easeOut)),
+    ),
+    TweenSequenceItem(weight: 89.1, tween: ConstantTween(1.0)),
+  ]).animate(_flightController);
+
+  /// Position (Y only — button and numplate share the same horizontal
+  /// center in this single-column layout, so the general `Tween<Offset>`
+  /// architecture frames this as collapses to one dimension, play-loop-v3.md
+  /// §1.3). Rebuilt fresh on every tap in [_launchFlight] since the
+  /// begin/end anchors are only known once `registerTap` has resolved and
+  /// the real `RenderBox` positions can be measured. `null` before the
+  /// first tap of the run — the flight layer simply isn't visible yet
+  /// (opacity starts at the controller's rest value, 0).
+  Animation<double>? _positionAnimation;
+
+  /// Fallback top position used only before [_positionAnimation] exists
+  /// (pre-first-tap). Never visible (opacity is 0 at rest) — just avoids a
+  /// null-position edge case in the `AnimatedBuilder`.
+  double _flightRestTop = 0;
+
+  /// Anchor for the button's visible content box (its `SizedBox(height:
+  /// 88)`), read via `RenderBox` — never a hardcoded pixel offset
+  /// (play-loop-v3.md §1.3).
+  final GlobalKey _buttonKey = GlobalKey();
+
+  /// Anchor for `_Numplate`'s own container.
+  final GlobalKey _numplateKey = GlobalKey();
+
+  /// The overlay `Stack`'s own box — the coordinate space every anchor is
+  /// converted into before building the position `Tween`.
+  final GlobalKey _overlayKey = GlobalKey();
+
+  /// The flying pill's own box — measured for its height only (constant
+  /// across all three band labels, play-loop-v3.md §1.3; only width varies
+  /// with text length), used to convert the spec's bottom-edge anchors into
+  /// the `Positioned.top` value this `Tween` actually animates.
+  final GlobalKey _pillKey = GlobalKey();
+
+  @override
+  void dispose() {
+    _pendingFlashClearTimer?.cancel();
+    _flightController.dispose();
+    super.dispose();
+  }
+
+  /// Shared tap handler for BOTH tap surfaces (the bottom button and the
+  /// numplate's padded hit area, architecture v3 §6.2/item 3) — each
+  /// `TapSurface` captures its own timestamp in its own `onPointerDown`
+  /// (the per-`Listener` hard rule is unchanged), but both feed this one
+  /// `registerTap` path.
+  void _handleTap(int pressMicros) {
+    ref.read(runControllerProvider.notifier).registerTap(pressMicros);
+
+    // Flash/animation react to the already-resolved tap result — strictly
+    // after registerTap returns. Never move this into TapSurface's
+    // onPointerDown or timing_engine.resolve() (play-screen-gate1-v1.md §3 /
+    // architecture v3 §7.2, hard rule, unchanged).
+    final RunState afterTap = ref.read(runControllerProvider);
+    final TimingBand? band = afterTap.lastBand;
+    if (band == null) {
+      // registerTap is a no-op when phase != playing (architecture v3
+      // §3.3) — both TapSurfaces only exist while phase == playing, so
+      // this shouldn't be reachable, but guard rather than crash.
+      return;
+    }
+    final bool isHit = band != TimingBand.miss;
+
+    ref.read(tapFlashBandProvider.notifier).state = band;
+    _pendingFlashClearTimer?.cancel();
+    _pendingFlashClearTimer = Timer(const Duration(milliseconds: 120), () {
+      if (mounted) {
+        ref.read(tapFlashBandProvider.notifier).state = null;
+      }
+    });
+
+    // The flying pill is a second, fully independent trigger reading the
+    // same tap result at the same moment — its own 460ms clock, never
+    // coupled to the 120ms wash timer above (play-loop-v3.md §1.4).
+    _launchFlight();
+
+    // Fire-and-forget — never await in the tap callback.
+    final SoundService soundService = ref.read(soundServiceProvider);
+    if (isHit) {
+      soundService.playHit();
+    } else {
+      soundService.playMiss();
+    }
+  }
+
+  /// Measures the button/numplate/pill anchors via their `GlobalKey`s and
+  /// (re)starts the flight animation from the button towards the numplate.
+  /// Called only from [_handleTap], strictly after `registerTap` has
+  /// resolved (architecture v3 §7.2).
+  void _launchFlight() {
+    final RenderBox? overlayBox =
+        _overlayKey.currentContext?.findRenderObject() as RenderBox?;
+    final RenderBox? buttonBox =
+        _buttonKey.currentContext?.findRenderObject() as RenderBox?;
+    final RenderBox? numplateBox =
+        _numplateKey.currentContext?.findRenderObject() as RenderBox?;
+    final RenderBox? pillBox =
+        _pillKey.currentContext?.findRenderObject() as RenderBox?;
+    if (overlayBox == null ||
+        buttonBox == null ||
+        numplateBox == null ||
+        pillBox == null) {
+      // Not yet laid out (shouldn't happen once phase == playing has ever
+      // rendered a frame) — skip this flight rather than crash.
+      return;
+    }
+
+    final double pillHeight = pillBox.size.height;
+    final double buttonTopY =
+        overlayBox.globalToLocal(buttonBox.localToGlobal(Offset.zero)).dy;
+    final double numplateTopY =
+        overlayBox.globalToLocal(numplateBox.localToGlobal(Offset.zero)).dy;
+
+    // Anchors measured from the pill's own bottom edge (play-loop-v3.md
+    // §1.3): launch 4dp above the button's top edge ("popping off the
+    // button"), arrival 40dp above the numplate's top edge (clears the
+    // whole "Tap at" + numplate cluster with margin).
+    final double launchTop = buttonTopY - 4 - pillHeight;
+    final double arrivalTop = numplateTopY - 40 - pillHeight;
+    _flightRestTop = launchTop;
+
+    _positionAnimation = Tween<double>(begin: launchTop, end: arrivalTop).animate(
+      CurvedAnimation(
+        parent: _flightController,
+        // 0.565 * 460ms ~= 260ms travel window (play-loop-v3.md §1.2);
+        // Interval pins its output at 1.0 for any t past 0.565, so the
+        // position is automatically held at the arrival point for the
+        // dwell/fade-out phases with no extra clamping logic needed.
+        curve: const Interval(0.0, 0.565, curve: Curves.easeOut),
+      ),
+    );
+
+    // Snap-away restart, never queued or blended: forward(from: 0.0)
+    // unconditionally resets the controller regardless of its current
+    // status (play-loop-v3.md §1.5) — a mid-flight pill's opacity/position
+    // snap back to the launch anchor within the same frame, then the same
+    // 460ms sequence begins again for the new tap's result.
+    _flightController.forward(from: 0.0);
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final RunState runState = ref.watch(runControllerProvider);
 
     if (runState.phase == RunPhase.countdown) {
       return const CountdownView();
+    }
+
+    if (runState.phase == RunPhase.dead) {
+      return _DeathPlaceholder(deathCount: runState.deathCount);
     }
 
     final clock = ref.watch(clockProvider);
@@ -95,90 +298,81 @@ class PlayScreen extends ConsumerWidget {
     return Scaffold(
       backgroundColor: AppColors.bg,
       body: SafeArea(
-        child: Column(
+        child: Stack(
+          key: _overlayKey,
           children: [
-            // Chips row (play-loop-v2.md §2.1/§3.1) — hardcoded literal
-            // stub values, not a provider or counter: there is no
-            // restart/death logic anywhere yet (`RunPhase` only has
-            // countdown/playing, a run never ends today), so a "counter"
-            // would just sit permanently at its initial value identically
-            // to a literal. Days 6-11 (outcome_resolver.dart +
-            // hive_profile_repository.dart lifetime counters) replaces
-            // these with real values; the chip's visual shell doesn't need
-            // to change when that happens. Content-hugging, not Expanded.
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: const [
-                  _Chip(label: 'Run', value: '1'),
-                  _Chip(label: 'Deaths', value: '0'),
-                ],
-              ),
-            ),
-
-            // Life bar block (play-loop-v2.md §2.4/§3.2). Track thickness
-            // 12dp (was 20 — too thick vs the mockup's `.lifebar`). The
-            // meta row ("Life {n}%" / "±{n}ms") now sits BELOW the bar,
-            // matching the mockup's `.lifemeta` order (the old build had it
-            // above, inverted). Content-hugging, not Expanded.
-            Padding(
-              padding: const EdgeInsets.only(left: 16, right: 16, top: 10),
-              child: Column(
-                children: [
-                  _LifeBar(lifePct: runState.lifePct),
-                  const SizedBox(height: 6),
-                  Row(
+            Column(
+              children: [
+                // Chips row (play-loop-v2.md §2.1/§3.1, values now real per
+                // architecture v3 §3.2/item 1): `Run` = deathCount + 1 (the
+                // attempt currently being played), `Deaths` = deathCount
+                // (lifetime, seeded from `ProfileRepository` and
+                // incremented in-memory on death). Content-hugging, not
+                // Expanded.
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                  child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(
-                        'Life ${runState.lifePct.round()}%',
-                        style: const TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.splashTagline,
-                        ),
-                      ),
-                      // Fixed tolerance readout (§0.4/§3.1 of play-loop-v1,
-                      // reconfirmed unchanged by play-loop-v2.md §2.4) —
-                      // always the current fixed TimingConfig.onPointMs
-                      // value, never varied with lifePct (adaptive
-                      // tightening is disabled; a narrowing readout would
-                      // visually promise a mechanic that isn't live). The
-                      // mockup's own "±64ms"/"±58ms" are illustrative
-                      // static copy — do not hardcode them.
-                      Text(
-                        '±${TimingConfig.onPointMs}ms',
-                        style: const TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.splashTagline,
-                        ),
+                      _Chip(label: 'Run', value: '${runState.deathCount + 1}'),
+                      _Chip(label: 'Deaths', value: '${runState.deathCount}'),
+                    ],
+                  ),
+                ),
+
+                // Life bar block (play-loop-v2.md §2.4/§3.2). Track
+                // thickness 12dp. The meta row ("Life {n}%" / "±{n}ms") sits
+                // below the bar. Content-hugging, not Expanded.
+                Padding(
+                  padding: const EdgeInsets.only(left: 16, right: 16, top: 10),
+                  child: Column(
+                    children: [
+                      _LifeBar(lifePct: runState.lifePct),
+                      const SizedBox(height: 6),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'Life ${runState.lifePct.round()}%',
+                            style: const TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.splashTagline,
+                            ),
+                          ),
+                          // Fixed tolerance readout, always the current
+                          // fixed TimingConfig.onPointMs value, never varied
+                          // with lifePct (adaptive tightening is disabled).
+                          Text(
+                            '±${TimingConfig.onPointMs}ms',
+                            style: const TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.splashTagline,
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),
-                ],
-              ),
-            ),
+                ),
 
-            // Center content zone (play-loop-v2.md §2.3/§3.3) — the ONLY
-            // Expanded in this Column, replacing the old Zone B (indicator +
-            // numplate) and Zone C (debug readout) split. `IndicatorWidget`/
-            // `_IndicatorPainter` are removed from the tree entirely (no
-            // mockup counterpart at any state, and the ticker fed nothing
-            // into RunController/timing_engine — see play-loop-v2.md §2.3
-            // for the full removal rationale). The debug DELTA/BAND readout
-            // is folded in here, still kDebugMode-gated, so release builds
-            // render nothing where it was (matching the mockup exactly) and
-            // debug builds keep the telemetry available.
-            Expanded(
-              flex: 1,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Stack(
-                  alignment: Alignment.topCenter,
-                  children: [
-                    Column(
+                // Center content zone (play-loop-v2.md §2.3/§3.3, extended
+                // by v3 item 3/§5): the numplate is now wrapped in a second
+                // `TapSurface` sharing `_handleTap` with the bottom button
+                // (architecture v3 §6.2, play-loop-v3.md §2.2's exact
+                // `28h/24v` padding) — a generous, forgiving hit area, no
+                // new visual affordance on the numplate itself. The old
+                // static `Positioned(top: 0, _FlashPill(...))` is gone
+                // entirely — the flight layer (below, in the outer Stack)
+                // is now the only place the result pill renders, so this
+                // zone no longer needs its own `Stack`. The debug
+                // DELTA/BAND readout is still kDebugMode-gated.
+                Expanded(
+                  flex: 1,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         const Text(
@@ -186,15 +380,24 @@ class PlayScreen extends ConsumerWidget {
                           style: TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.w600,
-                            // was AppColors.mute — the mockup's "Tap at"
-                            // label color is #4a5f5a, which is
-                            // AppColors.teachBody, not AppColors.mute
-                            // (#7b8a86) (play-loop-v2.md §3.3).
                             color: AppColors.teachBody,
                           ),
                         ),
                         const SizedBox(height: 4),
-                        _Numplate(targetSeconds: targetSeconds),
+                        TapSurface(
+                          clock: clock,
+                          onTapMicros: _handleTap,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 28,
+                              vertical: 24,
+                            ),
+                            child: _Numplate(
+                              key: _numplateKey,
+                              targetSeconds: targetSeconds,
+                            ),
+                          ),
+                        ),
                         if (kDebugMode) ...[
                           const SizedBox(height: 12),
                           Text(
@@ -204,83 +407,81 @@ class PlayScreen extends ConsumerWidget {
                         ],
                       ],
                     ),
-                    if (flashBand != null)
-                      Positioned(
-                        top: 0,
-                        child: _FlashPill(band: flashBand),
-                      ),
-                  ],
+                  ),
                 ),
-              ),
-            ),
 
-            // Bottom control bar (play-loop-v2.md §2.2/§3.4) — legend
-            // pills now live in their own Row, ABOVE the tap button, not
-            // inside its content column. The button itself shrinks to a
-            // fixed 88dp height, full width (was Expanded(flex: 50), the
-            // former ~half-screen block) — a deliberate, founder-directed
-            // reversal of the earlier "Zone D must stay full-size" rule
-            // (play-loop-v2.md §2.2, not re-litigated here). The
-            // `Listener`-based tap capture mechanism inside `TapSurface` is
-            // untouched — only the container wrapping it resizes.
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 18),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
+                // Bottom control bar (play-loop-v2.md §2.2/§3.4) — legend
+                // pills above the compact 88dp tap button, unchanged in
+                // shape by v3 (item 4 only changes the pills' *text*, to
+                // ranges; the button's own `Listener`-based tap capture is
+                // untouched).
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 18),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      _LegendPill(
-                        label:
-                            'Hit ${_formatSignedLifeDelta(TimingConfig.onPointLifeDelta)}%',
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          _LegendPill(
+                            label:
+                                'Hit ${_formatLifeDeltaRange(TimingConfig.onPointLifeDeltaMin, TimingConfig.onPointLifeDeltaMax)}',
+                          ),
+                          const SizedBox(width: 10),
+                          _LegendPill(
+                            label:
+                                'Miss ${_formatLifeDeltaRange(TimingConfig.missLifeDeltaMin, TimingConfig.missLifeDeltaMax)}',
+                          ),
+                        ],
                       ),
-                      const SizedBox(width: 10),
-                      _LegendPill(
-                        label:
-                            'Miss ${_formatSignedLifeDelta(TimingConfig.missLifeDelta)}%',
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        key: _buttonKey,
+                        height: 88,
+                        width: double.infinity,
+                        child: TapSurface(
+                          clock: clock,
+                          onTapMicros: _handleTap,
+                          child: _TapZone(flashBand: flashBand),
+                        ),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 8),
-                  SizedBox(
-                    height: 88,
-                    width: double.infinity,
-                    child: TapSurface(
-                      clock: clock,
-                      onTapMicros: (int pressMicros) {
-                        ref.read(runControllerProvider.notifier).registerTap(pressMicros);
+                ),
+              ],
+            ),
 
-                        // Flash reacts to the already-resolved tap result —
-                        // strictly after registerTap returns. Never move this
-                        // into TapSurface.onPointerDown or timing_engine.resolve()
-                        // (play-screen-gate1-v1.md §3, hard rule).
-                        final TimingBand band =
-                            ref.read(runControllerProvider).lastBand!;
-                        final bool isHit = band != TimingBand.miss;
-
-                        ref.read(tapFlashBandProvider.notifier).state = band;
-                        _pendingFlashClearTimer?.cancel();
-                        _pendingFlashClearTimer =
-                            Timer(const Duration(milliseconds: 120), () {
-                          if (ref.context.mounted) {
-                            ref.read(tapFlashBandProvider.notifier).state = null;
-                          }
-                        });
-
-                        // Fire-and-forget — never await in the tap callback.
-                        final SoundService soundService = ref.read(soundServiceProvider);
-                        if (isHit) {
-                          soundService.playHit();
-                        } else {
-                          soundService.playMiss();
-                        }
-                      },
-                      child: _TapZone(flashBand: flashBand),
+            // The flying result pill (play-loop-v3.md §1) — layered above
+            // the Column so it can travel across regions that belong to
+            // different parts of it (the button and the numplate). Wrapped
+            // in `IgnorePointer` so a mid-flight pill drifting over the
+            // numplate's tap-target region never silently eats a tap meant
+            // for it (play-loop-v3.md §1.6, load-bearing).
+            AnimatedBuilder(
+              animation: _flightController,
+              builder: (context, _) {
+                final double top = _positionAnimation?.value ?? _flightRestTop;
+                return Positioned(
+                  left: 0,
+                  right: 0,
+                  top: top,
+                  child: IgnorePointer(
+                    child: Center(
+                      child: Opacity(
+                        opacity: _opacityAnimation.value,
+                        child: Transform.scale(
+                          scale: _scaleAnimation.value,
+                          child: _FlashPill(
+                            key: _pillKey,
+                            band: runState.lastBand ?? TimingBand.onPoint,
+                            lifeDelta: runState.lastLifeDelta ?? 0.0,
+                          ),
+                        ),
+                      ),
                     ),
                   ),
-                ],
-              ),
+                );
+              },
             ),
           ],
         ),
@@ -302,15 +503,74 @@ class PlayScreen extends ConsumerWidget {
   }
 }
 
+/// The minimal death-cycle placeholder (architecture v3 §3.5, play-loop-v3.md
+/// §3) — a full-screen replacement (matching the eventual Days 6-11 outcome
+/// card's own full-screen structure), NOT a modal overlay. Deliberately
+/// un-designed: no death-line copy pool, no art, no share, no badge/skull
+/// chrome — those are the real outcome card's job. `ConsumerWidget` rather
+/// than the doc's illustrative `StatelessWidget` sketch, since it needs
+/// `ref` to call `startNewCycle()`.
+class _DeathPlaceholder extends ConsumerWidget {
+  const _DeathPlaceholder({required this.deathCount});
+
+  final int deathCount;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return Scaffold(
+      backgroundColor: AppColors.bg,
+      body: SafeArea(
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'You died',
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.ink,
+                ),
+              ),
+              const SizedBox(height: 14),
+              // Reused verbatim — same widget class already built for the
+              // top bar's chip row, zero new visual vocabulary.
+              _Chip(label: 'Deaths', value: '$deathCount'),
+              const SizedBox(height: 32),
+              GestureDetector(
+                // Ordinary UI navigation, not the latency-critical
+                // tap-capture path — `GestureDetector` is correct here, the
+                // `Listener`-only rule doesn't apply (play-loop-v3.md §3.2).
+                onTap: () =>
+                    ref.read(runControllerProvider.notifier).startNewCycle(),
+                behavior: HitTestBehavior.opaque,
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                  child: Text(
+                    'Play again',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.ink,
+                      decoration: TextDecoration.underline,
+                      decorationColor: AppColors.ink,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// The life bar's track (play-loop-v1.md §3.1, thickness corrected by
 /// play-loop-v2.md §2.4): `AppColors.paper` track, 2px `AppColors.ink`
-/// border, fully round, ~1.5dp inner padding around the fill — the same
-/// shape recipe `onboarding-flow-v1.md` §5.2 already used for the splash
-/// preload bar, reused here for visual consistency between the app's few
-/// bar widgets. Fill color is the three-tier read (§3.1's table); width
-/// still snaps on rebuild, no animation (unchanged Gate 1 call, not
-/// required this pass either). Height 12dp (was 20 — thicker than the
-/// mockup's `.lifebar`, confirmed and fixed per play-loop-v2.md §2.4).
+/// border, fully round, ~1.5dp inner padding around the fill. Fill color is
+/// the three-tier read (§3.1's table); width still snaps on rebuild, no
+/// animation.
 class _LifeBar extends StatelessWidget {
   const _LifeBar({required this.lifePct});
 
@@ -345,19 +605,13 @@ class _LifeBar extends StatelessWidget {
 
 /// The numplate (play-loop-v1.md §3.2, padding/line-height corrected by
 /// play-loop-v2.md §2.5): `paper` fill, 2.5px ink border, radius 18, flat
-/// shadow (0,4) ink, number 40sp/700 ink. The "Tap at" label above it is no
-/// longer this widget's own child — play-loop-v2.md §3.3 hoists it up into
-/// the center zone's outer Column, as a sibling, not a child of the
-/// numplate. Number keeps the exact same source/formatting as before
-/// (`targetDurationMicros / 1e6`, `toStringAsFixed(2)`) — only the
-/// container chrome around it changes. Padding corrected to `horizontal:
-/// 22, vertical: 9` (was `20, 6` — vertical too tight, horizontal slightly
-/// under vs the mockup's `.numplate`); `height: 1.0` added to the number's
-/// `TextStyle` (Flutter's default line-height is taller than 1, which
-/// visually unbalanced the padding above even with the padding itself
-/// fixed).
+/// shadow (0,4) ink, number 40sp/700 ink. Item 3 (architecture v3 §6.2,
+/// play-loop-v3.md §2.1) makes this a real tap target via an outer
+/// `TapSurface` + padding wrap in `PlayScreen`'s build() — this widget's own
+/// chrome is deliberately unchanged (no pressed-state affordance, per
+/// play-loop-v3.md §2.1's explicit call).
 class _Numplate extends StatelessWidget {
-  const _Numplate({required this.targetSeconds});
+  const _Numplate({super.key, required this.targetSeconds});
 
   final double targetSeconds;
 
@@ -387,13 +641,11 @@ class _Numplate extends StatelessWidget {
 }
 
 /// The Run/Deaths chip row's individual chip (play-loop-v2.md §2.1/§3.1):
-/// `paper` fill, 2dp ink border (deliberately not the 1.5dp
-/// `_LegendPill` uses — the mockup's `.chip`/`.pill` are both literally
-/// `border:2px`; not in scope to retrofit `_LegendPill` this pass, flagged
-/// only), fully round, a plain label + a bold value. Both this pass's
-/// chips (`Run`/`1`, `Deaths`/`0`) are hardcoded literal stub values, not
-/// backed by a provider or counter — see the build() doc comment above the
-/// chips row for why.
+/// `paper` fill, 2dp ink border, fully round, a plain label + a bold value.
+/// Values are now provider-backed (architecture v3 §3.2/item 1) instead of
+/// hardcoded literals; the chip shell itself is unchanged. Also reused
+/// verbatim by `_DeathPlaceholder` for its "Deaths" readout
+/// (play-loop-v3.md §3.2).
 class _Chip extends StatelessWidget {
   const _Chip({required this.label, required this.value});
 
@@ -434,28 +686,32 @@ class _Chip extends StatelessWidget {
   }
 }
 
-/// The floating hit/miss result pill (play-loop-v1.md §3.2) — relocated
-/// from Gate 1's whole-tap-zone color wash to a small pill near the
-/// numplate. Band-correct copy/percentages sourced directly from
-/// `TimingConfig` (never hardcoded digits — §0.4 flags the mockup's own
-/// copy as inconsistent with real config values). Same 120ms hard-cut, no
-/// fade, show/hide mechanics as before — only the container and position
-/// changed; the "must fire strictly after registerTap resolves" rule
-/// governing when this appears is unchanged (owned by `PlayScreen`, not
-/// this widget).
+/// The hit/miss result pill's chrome (play-loop-v1.md §3.2, play-loop-v3.md
+/// §1.1) — reused *verbatim*, unrestyled, as both the static chrome
+/// reference and the widget that now flies from the tap button to the
+/// numplate (`_PlayScreenState`'s `AnimatedBuilder` wraps this in
+/// `Opacity`/`Transform.scale`/`Positioned`, but never changes this widget's
+/// own decoration). [lifeDelta] is the *actual* rolled value for this tap
+/// (`RunState.lastLifeDelta`), not a `TimingConfig` constant — architecture
+/// v3 §4.3, since On-point/Miss deltas are now ranged.
 class _FlashPill extends StatelessWidget {
-  const _FlashPill({required this.band});
+  const _FlashPill({
+    super.key,
+    required this.band,
+    required this.lifeDelta,
+  });
 
   final TimingBand band;
+  final double lifeDelta;
 
-  static String _copy(TimingBand band) {
+  static String _copy(TimingBand band, double lifeDelta) {
     switch (band) {
       case TimingBand.perfect:
-        return 'PERFECT ${_formatSignedLifeDelta(TimingConfig.perfectLifeDelta)}%';
+        return 'PERFECT ${_formatSignedLifeDelta(lifeDelta)}%';
       case TimingBand.onPoint:
-        return 'ON POINT ${_formatSignedLifeDelta(TimingConfig.onPointLifeDelta)}%';
+        return 'ON POINT ${_formatSignedLifeDelta(lifeDelta)}%';
       case TimingBand.miss:
-        return 'MISS ${_formatSignedLifeDelta(TimingConfig.missLifeDelta)}%';
+        return 'MISS ${_formatSignedLifeDelta(lifeDelta)}%';
     }
   }
 
@@ -473,7 +729,7 @@ class _FlashPill extends StatelessWidget {
         ],
       ),
       child: Text(
-        _copy(band),
+        _copy(band, lifeDelta),
         style: const TextStyle(
           fontSize: 13,
           fontWeight: FontWeight.w700,
@@ -485,18 +741,11 @@ class _FlashPill extends StatelessWidget {
 }
 
 /// The tap button's chrome + content (play-loop-v1.md §3.3) — the mockup's
-/// `.tapbtn` visual recipe (border/shadow/radius/text-shadow) copied by
-/// hand onto the Listener-wrapped container (do not reuse
-/// `StickerButton`: it wraps a `GestureDetector`, banned in the
-/// tap-capture path — `play-screen-skeleton-v1.md` §1). This widget is
-/// purely decorative/content; the `Listener` capture wrapping it in
-/// `PlayScreen` is untouched. Per play-loop-v2.md §2.2/§3.4, this widget no
-/// longer renders the Hit/Miss legend pills as its own trailing content —
-/// they've moved out into their own `Row` above the (now compact, 88dp
-/// fixed-height) button in `PlayScreen`'s bottom control bar. Everything
-/// else about this widget's decoration (coral fill / flash-color-on-tap,
-/// 2.5dp ink border, radius 22, flat shadow, "TAP" + shadowed text, "land
-/// on the number" caption) is unchanged.
+/// `.tapbtn` visual recipe copied by hand onto the Listener-wrapped
+/// container (do not reuse `StickerButton`: it wraps a `GestureDetector`,
+/// banned in the tap-capture path). Unchanged by v3 — item 3 adds a
+/// *second* tap surface elsewhere; this button and its wash stay exactly as
+/// they were.
 class _TapZone extends StatelessWidget {
   const _TapZone({required this.flashBand});
 
@@ -545,9 +794,6 @@ class _TapZone extends StatelessWidget {
               'land on the number',
               style: TextStyle(fontSize: 9, color: Colors.white70),
             ),
-            // NOTE: no legend pills here anymore — moved to their own Row
-            // above the button in PlayScreen's bottom control bar, per
-            // play-loop-v2.md §2.2/§3.4.
           ],
         ),
       ),
@@ -556,7 +802,9 @@ class _TapZone extends StatelessWidget {
 }
 
 /// A single legend pill (play-loop-v1.md §3.3): `AppColors.paper` pill
-/// chrome, static informational text.
+/// chrome, static informational text. Item 4 (architecture v3 §4.3,
+/// play-loop-v3.md §4) changes only the *label strings* passed in — from a
+/// single fixed number to a range — this widget's chrome is unchanged.
 class _LegendPill extends StatelessWidget {
   const _LegendPill({required this.label});
 

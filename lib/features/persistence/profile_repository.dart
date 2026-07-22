@@ -21,4 +21,20 @@ abstract class ProfileRepository {
   /// (onboarding-flow-v1.md §3.3) — called exclusively from
   /// `OnboardingController.submitName` (valid) or `skipNaming`.
   Future<void> markOnboardingComplete({String? name});
+
+  /// Lifetime death count across all runs (architecture v3 §3.2/§3.4).
+  /// Persisted; defaults to `0` on a fresh install. `RunController.build()`
+  /// seeds `RunState.deathCount` from this once per app session; it does
+  /// not re-read this getter after every death (the in-memory count is
+  /// incremented directly, and [incrementDeathCount] just keeps the
+  /// persisted value in sync).
+  int get deathCount;
+
+  /// Increments the persisted lifetime death count by one — a
+  /// read-modify-write on the same box `markOnboardingComplete` already
+  /// uses (v2 §3.4's standing "extend the one repository, never add a
+  /// second store" decision). Called fire-and-forget from
+  /// `RunController.registerTap` the instant life reaches 0% — never
+  /// awaited in the tap path.
+  Future<void> incrementDeathCount();
 }
