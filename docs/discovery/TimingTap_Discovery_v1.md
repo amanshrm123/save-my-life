@@ -60,20 +60,24 @@ Three run-ending outcomes, each with its own text/card pool.
 ```
 delta = |press_time − target_time|
 
-delta ≤ PERFECT_MS  → Perfect    → +3% life
-delta ≤ HIT_MS      → On-point   → +2% life
-delta >  HIT_MS      → Miss       → −3 to −5% life
+delta ≤ PERFECT_MS  → Perfect    → +3% life  (fixed — the guaranteed band ceiling)
+delta ≤ HIT_MS      → On-point   → +2 to +3% life  (rolled per tap)
+delta >  HIT_MS      → Miss       → −3 to −5% life  (rolled per tap)
 ```
 
 **Starting values (playtest defaults, not final):**
 
 | Band | Window (±) | Meaning | Life effect |
 |---|---|---|---|
-| Perfect | ±30 ms | Elite timing, rare | +3% |
-| On-point | ±80 ms | Achievable with focus | +2% |
-| Miss | > ±80 ms | — | −3 to −5% |
+| Perfect | ±30 ms | Elite timing, rare | +3% (fixed) |
+| On-point | ±80 ms | Achievable with focus | +2 to +3% (rolled) |
+| Miss | > ±80 ms | — | −3 to −5% (rolled) |
 
 ±80 ms sits above the ~50 ms hardware+human noise floor, so a good tap reliably registers as good; ±30 ms Perfect is hard but not impossible — the right rarity for a bonus tier and for gating Eternal Human.
+
+**Life-delta is rolled randomly within each band's range (corrected 2026-07-22).** The band a tap lands in is decided *deterministically* from timing (delta vs the ms thresholds); the *life-percentage magnitude* it then awards/costs is rolled within that band's specified range, so identical bands don't always move the bar by the same amount. This restores the original §1 intent ("+2–3%", "−3 to −5%") that the Days 1–2 skeleton had temporarily collapsed into fixed constants (`onPointLifeDelta = 2.0`, `missLifeDelta = −4.0`). **Perfect stays fixed at +3%** — it is the elite tolerance tier and the guaranteed reward ceiling (a rolled Perfect could otherwise land *below* a lucky On-point roll, inverting the tiers); it was never given a range here and keeps none. See architecture `v3.md` §4 for the exact roll ranges, step granularity, and the purity-preserving way the roll is injected into `resolve()`.
+
+**This is NOT adaptive difficulty tightening.** Rolling the life-delta *magnitude* within an already-resolved band is a wholly separate mechanic from the adaptive tightening described just below (which narrows the *time* tolerance window `HIT_MS` as life% climbs, via the `k` coefficient). The magnitude roll does not read life%, does not touch `HIT_MS`/`PERFECT_MS`, and does not touch the (still-disabled, `k = 0`) `adaptiveK`. The scope guard's ban on adaptive tightening is unaffected and still holds.
 
 **Adaptive tightening = the difficulty curve.** Shrink the on-point window as life climbs, so recovery stays tense and players don't plateau:
 
@@ -220,3 +224,5 @@ Deliberately pessimistic: a tiny user base, low engagement, and low global-blend
 ---
 
 *Design is fully locked as of v1. The tolerance-window method, difficulty curve, and Eternal Human gating are now resolved (§3a); remaining items in §4 (death-content tier, share pipeline) plus the exact ms/coefficient values are Phase 0 playtest tuning, not open specification.*
+
+*Correction log — 2026-07-22 (architecture v3): §3a's On-point life effect corrected from a flat +2% back to the ranged +2 to +3% the concept (§1) always specified, and both On-point and Miss deltas clarified as rolled-per-tap within their bands (Perfect stays fixed). This corrects a Days 1–2 divergence, not the original design. No other section changed.*
