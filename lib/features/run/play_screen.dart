@@ -57,14 +57,6 @@ String _formatSignedLifeDelta(double value) {
   return '${value < 0 ? '-' : '+'}$magnitudeText';
 }
 
-/// Formats a life-delta *range* for the static legend pills (architecture
-/// v3 §4.3, play-loop-v3.md §4): `"+2 to +3%"` / `"-5 to -3%"` — spelled-out
-/// "to", never a dash (a dash-joined Miss range like "-5-3%" is ambiguous at
-/// a glance). Ascending order (min then max) for both pills, matching
-/// `TimingConfig`'s own min→max naming.
-String _formatLifeDeltaRange(double min, double max) =>
-    '${_formatSignedLifeDelta(min)} to ${_formatSignedLifeDelta(max)}%';
-
 /// The Play screen. Branches on `RunState.phase`: `countdown` renders the
 /// full-screen 3-2-1 (`CountdownView`); `dead` renders the minimal
 /// `_DeathPlaceholder` (architecture v3 §3.5, play-loop-v3.md §3) — a
@@ -72,12 +64,15 @@ String _formatLifeDeltaRange(double min, double max) =>
 /// the `countdown` early-return; `playing` renders the exact-fidelity
 /// rebuild from docs/design/play-loop-v2.md §3, extended by v3: chips now
 /// read the real persisted `deathCount` (item 1), life starts at 100%
-/// (item 2), the numplate is a second tap target (item 3), Hit/Miss deltas
-/// are rolled within ranges and the flash pill shows the actual rolled
-/// value (item 4), and the result pill flies from the tap button to the
-/// numplate via a `Stack` overlay + `AnimationController` (item 5,
-/// play-loop-v3.md §1) — the one element the Gate-1 animation ban is lifted
-/// for (architecture v3 §7).
+/// (item 2), Hit/Miss deltas are rolled within ranges and the flash pill
+/// shows the actual rolled value (item 4), and the result pill flies from
+/// the tap button to the numplate via a `Stack` overlay +
+/// `AnimationController` (item 5, play-loop-v3.md §1) — the one element the
+/// Gate-1 animation ban is lifted for (architecture v3 §7). v4 walks back
+/// v3 item 3 (architecture v4 §1): the numplate keeps its `TapSurface` but
+/// the callback is now an inert no-op — the bottom TAP button is the sole
+/// scoring input — and the legend pills (v4 §2) now show each band's live
+/// most-recent rolled value instead of a static range.
 ///
 /// Promoted from `ConsumerWidget` to `ConsumerStatefulWidget` (architecture
 /// v3 §7.3's suggested structure) purely to own the flight
@@ -120,12 +115,18 @@ class _PlayScreenState extends ConsumerState<PlayScreen>
   late final Animation<double> _opacityAnimation = TweenSequence<double>([
     TweenSequenceItem(
       weight: 10.9,
-      tween: Tween(begin: 0.0, end: 1.0).chain(CurveTween(curve: Curves.easeOut)),
+      tween: Tween(
+        begin: 0.0,
+        end: 1.0,
+      ).chain(CurveTween(curve: Curves.easeOut)),
     ),
     TweenSequenceItem(weight: 69.5, tween: ConstantTween(1.0)),
     TweenSequenceItem(
       weight: 19.6,
-      tween: Tween(begin: 1.0, end: 0.0).chain(CurveTween(curve: Curves.easeIn)),
+      tween: Tween(
+        begin: 1.0,
+        end: 0.0,
+      ).chain(CurveTween(curve: Curves.easeIn)),
     ),
   ]).animate(_flightController);
 
@@ -134,7 +135,10 @@ class _PlayScreenState extends ConsumerState<PlayScreen>
   late final Animation<double> _scaleAnimation = TweenSequence<double>([
     TweenSequenceItem(
       weight: 10.9,
-      tween: Tween(begin: 0.85, end: 1.0).chain(CurveTween(curve: Curves.easeOut)),
+      tween: Tween(
+        begin: 0.85,
+        end: 1.0,
+      ).chain(CurveTween(curve: Curves.easeOut)),
     ),
     TweenSequenceItem(weight: 89.1, tween: ConstantTween(1.0)),
   ]).animate(_flightController);
@@ -202,11 +206,12 @@ class _PlayScreenState extends ConsumerState<PlayScreen>
     super.dispose();
   }
 
-  /// Shared tap handler for BOTH tap surfaces (the bottom button and the
-  /// numplate's padded hit area, architecture v3 §6.2/item 3) — each
-  /// `TapSurface` captures its own timestamp in its own `onPointerDown`
-  /// (the per-`Listener` hard rule is unchanged), but both feed this one
-  /// `registerTap` path.
+  /// Tap handler for the bottom TAP button's `TapSurface` — as of v4 gap 1
+  /// (architecture v4 §1), it is the **sole scoring input**: the numplate's
+  /// `TapSurface` is intentionally wired to an empty no-op callback instead
+  /// of this handler (see the `_Numplate` `TapSurface` below). Each
+  /// `TapSurface` still captures its own timestamp in its own
+  /// `onPointerDown` (the per-`Listener` hard rule is unchanged).
   void _handleTap(int pressMicros) {
     // Captured before calling registerTap so the no-op check below is
     // independent of `lastBand` (which persists across taps — only
@@ -215,14 +220,15 @@ class _PlayScreenState extends ConsumerState<PlayScreen>
     // the phase directly matches the exact guard `registerTap` itself uses
     // (architecture v3 §3.3: `if (state.phase != RunPhase.playing) return`),
     // so this stays correct even if a future change to widget structure ever
-    // let a `TapSurface` outlive `phase == playing`.
+    // let the button's `TapSurface` outlive `phase == playing`.
     final RunPhase phaseBeforeTap = ref.read(runControllerProvider).phase;
     ref.read(runControllerProvider.notifier).registerTap(pressMicros);
 
     if (phaseBeforeTap != RunPhase.playing) {
       // registerTap is a no-op when phase != playing (architecture v3
-      // §3.3) — both TapSurfaces only exist while phase == playing, so
-      // this shouldn't be reachable, but guard rather than crash.
+      // §3.3) — the button's TapSurface only exists while phase ==
+      // playing, so this shouldn't be reachable, but guard rather than
+      // crash.
       return;
     }
 
@@ -281,10 +287,12 @@ class _PlayScreenState extends ConsumerState<PlayScreen>
     }
 
     final double pillHeight = pillBox.size.height;
-    final double buttonTopY =
-        overlayBox.globalToLocal(buttonBox.localToGlobal(Offset.zero)).dy;
-    final double numplateTopY =
-        overlayBox.globalToLocal(numplateBox.localToGlobal(Offset.zero)).dy;
+    final double buttonTopY = overlayBox
+        .globalToLocal(buttonBox.localToGlobal(Offset.zero))
+        .dy;
+    final double numplateTopY = overlayBox
+        .globalToLocal(numplateBox.localToGlobal(Offset.zero))
+        .dy;
 
     // Anchors measured from the pill's own bottom edge (play-loop-v3.md
     // §1.3): launch 4dp above the button's top edge ("popping off the
@@ -299,8 +307,10 @@ class _PlayScreenState extends ConsumerState<PlayScreen>
     // to `_flightController` on every tap with no way to remove it; see
     // [_flightCurve]'s doc comment). Only the `Tween`'s begin/end anchors
     // are rebuilt per tap.
-    _positionAnimation =
-        Tween<double>(begin: launchTop, end: arrivalTop).animate(_flightCurve);
+    _positionAnimation = Tween<double>(
+      begin: launchTop,
+      end: arrivalTop,
+    ).animate(_flightCurve);
 
     // Snap-away restart, never queued or blended: forward(from: 0.0)
     // unconditionally resets the controller regardless of its current
@@ -390,16 +400,18 @@ class _PlayScreenState extends ConsumerState<PlayScreen>
                 ),
 
                 // Center content zone (play-loop-v2.md §2.3/§3.3, extended
-                // by v3 item 3/§5): the numplate is now wrapped in a second
-                // `TapSurface` sharing `_handleTap` with the bottom button
-                // (architecture v3 §6.2, play-loop-v3.md §2.2's exact
-                // `28h/24v` padding) — a generous, forgiving hit area, no
-                // new visual affordance on the numplate itself. The old
-                // static `Positioned(top: 0, _FlashPill(...))` is gone
-                // entirely — the flight layer (below, in the outer Stack)
-                // is now the only place the result pill renders, so this
-                // zone no longer needs its own `Stack`. The debug
-                // DELTA/BAND readout is still kDebugMode-gated.
+                // by v3 item 3/§5, walked back by v4 §1): the numplate is
+                // still wrapped in a second `TapSurface` (play-loop-v3.md
+                // §2.2's exact `28h/24v` padding, a generous, forgiving hit
+                // area) but that surface's callback is now an inert no-op —
+                // see the `onTapMicros` comment below — the bottom TAP
+                // button is the sole scoring input as of v4. No new visual
+                // affordance on the numplate itself. The old static
+                // `Positioned(top: 0, _FlashPill(...))` is gone entirely —
+                // the flight layer (below, in the outer Stack) is now the
+                // only place the result pill renders, so this zone no
+                // longer needs its own `Stack`. The debug DELTA/BAND
+                // readout is still kDebugMode-gated.
                 Expanded(
                   flex: 1,
                   child: Padding(
@@ -418,7 +430,21 @@ class _PlayScreenState extends ConsumerState<PlayScreen>
                         const SizedBox(height: 4),
                         TapSurface(
                           clock: clock,
-                          onTapMicros: _handleTap,
+                          // v4 gap 1: the numplate is deliberately
+                          // tappable-but-INERT this phase. It MUST NOT
+                          // score — no registerTap, no life change, no
+                          // flash, no flight. The bottom TAP button is the
+                          // sole scoring input (architecture v4 §1). This
+                          // empty callback is intentional and load-bearing,
+                          // NOT half-wired/dead code: the TapSurface is
+                          // kept so the number still absorbs touches (a tap
+                          // on the number reads as "pressed but nothing
+                          // happened", never falls through to a surface
+                          // behind it) and as a forward-compatible
+                          // placeholder for a possible future *non-scoring*
+                          // numplate action. Do not "fix" this by wiring it
+                          // back to _handleTap.
+                          onTapMicros: (_) {},
                           child: Padding(
                             padding: const EdgeInsets.symmetric(
                               horizontal: 28,
@@ -444,9 +470,11 @@ class _PlayScreenState extends ConsumerState<PlayScreen>
 
                 // Bottom control bar (play-loop-v2.md §2.2/§3.4) — legend
                 // pills above the compact 88dp tap button, unchanged in
-                // shape by v3 (item 4 only changes the pills' *text*, to
-                // ranges; the button's own `Listener`-based tap capture is
-                // untouched).
+                // shape by v3/v4 (v3 item 4 first changed the pills' *text*
+                // to a static range; v4 §2 changes it again, to each band's
+                // live most-recent rolled value — the pill chrome itself is
+                // still untouched). The button's own `Listener`-based tap
+                // capture is untouched.
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 0, 16, 18),
                   child: Column(
@@ -457,12 +485,12 @@ class _PlayScreenState extends ConsumerState<PlayScreen>
                         children: [
                           _LegendPill(
                             label:
-                                'Hit ${_formatLifeDeltaRange(TimingConfig.onPointLifeDeltaMin, TimingConfig.onPointLifeDeltaMax)}',
+                                'Hit ${_formatSignedLifeDelta(runState.lastHitLifeDelta)}%',
                           ),
                           const SizedBox(width: 10),
                           _LegendPill(
                             label:
-                                'Miss ${_formatLifeDeltaRange(TimingConfig.missLifeDeltaMin, TimingConfig.missLifeDeltaMax)}',
+                                'Miss ${_formatSignedLifeDelta(runState.lastMissLifeDelta)}%',
                           ),
                         ],
                       ),
@@ -637,11 +665,14 @@ class _LifeBar extends StatelessWidget {
 
 /// The numplate (play-loop-v1.md §3.2, padding/line-height corrected by
 /// play-loop-v2.md §2.5): `paper` fill, 2.5px ink border, radius 18, flat
-/// shadow (0,4) ink, number 40sp/700 ink. Item 3 (architecture v3 §6.2,
-/// play-loop-v3.md §2.1) makes this a real tap target via an outer
-/// `TapSurface` + padding wrap in `PlayScreen`'s build() — this widget's own
-/// chrome is deliberately unchanged (no pressed-state affordance, per
-/// play-loop-v3.md §2.1's explicit call).
+/// shadow (0,4) ink, number 40sp/700 ink. v3 item 3 (architecture v3 §6.2,
+/// play-loop-v3.md §2.1) wrapped this in an outer `TapSurface` + padding in
+/// `PlayScreen`'s build() to make it a real tap target; v4 gap 1
+/// (architecture v4 §1) keeps that `TapSurface` wrapper but makes its
+/// callback an inert no-op — the numplate stays touch-responsive but no
+/// longer scores. This widget's own chrome is deliberately unchanged either
+/// way (no pressed-state affordance, per play-loop-v3.md §2.1's explicit
+/// call).
 class _Numplate extends StatelessWidget {
   const _Numplate({super.key, required this.targetSeconds});
 
@@ -727,11 +758,7 @@ class _Chip extends StatelessWidget {
 /// (`RunState.lastLifeDelta`), not a `TimingConfig` constant — architecture
 /// v3 §4.3, since On-point/Miss deltas are now ranged.
 class _FlashPill extends StatelessWidget {
-  const _FlashPill({
-    super.key,
-    required this.band,
-    required this.lifeDelta,
-  });
+  const _FlashPill({super.key, required this.band, required this.lifeDelta});
 
   final TimingBand band;
   final double lifeDelta;
@@ -749,7 +776,9 @@ class _FlashPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final Color fill = band == TimingBand.miss ? AppColors.red : AppColors.green;
+    final Color fill = band == TimingBand.miss
+        ? AppColors.red
+        : AppColors.green;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
       decoration: BoxDecoration(
@@ -793,7 +822,9 @@ class _TapZone extends StatelessWidget {
     // reads as a mismatch (tester pass, on-device finding).
     final Color labelShadow = flashBand == null
         ? AppColors.coralDark
-        : (flashBand == TimingBand.miss ? AppColors.redDark : AppColors.greenDark);
+        : (flashBand == TimingBand.miss
+              ? AppColors.redDark
+              : AppColors.greenDark);
 
     return Container(
       key: const Key('zoneDContainer'),
@@ -834,9 +865,11 @@ class _TapZone extends StatelessWidget {
 }
 
 /// A single legend pill (play-loop-v1.md §3.3): `AppColors.paper` pill
-/// chrome, static informational text. Item 4 (architecture v3 §4.3,
-/// play-loop-v3.md §4) changes only the *label strings* passed in — from a
-/// single fixed number to a range — this widget's chrome is unchanged.
+/// chrome, now-live informational text. v3 item 4 (architecture v3 §4.3,
+/// play-loop-v3.md §4) first changed the label from a single fixed number
+/// to a static range; v4 §2 changes it again, to each band's live
+/// most-recent rolled value (`RunState.lastHitLifeDelta`/
+/// `lastMissLifeDelta`) — this widget's own chrome is unchanged by either.
 class _LegendPill extends StatelessWidget {
   const _LegendPill({required this.label});
 

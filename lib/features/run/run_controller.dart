@@ -25,6 +25,8 @@ class RunState {
     required this.targetDurationMicros,
     required this.phase,
     required this.deathCount,
+    required this.lastHitLifeDelta,
+    required this.lastMissLifeDelta,
     this.lastDeltaMs,
     this.lastBand,
     this.lastLifeDelta,
@@ -61,6 +63,21 @@ class RunState {
   /// tap's outcome).
   final double? lastLifeDelta;
 
+  /// The life-delta the most recent On-point ("Hit") tap actually rolled —
+  /// drives the "Hit" legend pill (architecture v4 §2). Distinct from
+  /// [lastLifeDelta] (the single most-recent tap regardless of band): this
+  /// is per-band memory, unchanged by a subsequent Miss or Perfect tap.
+  /// Seeded to [_seedHitLifeDelta] (+2, the band minimum) in `build()`/
+  /// `startNewCycle()` and never null — the pill always has a value to
+  /// show.
+  final double lastHitLifeDelta;
+
+  /// The life-delta the most recent Miss tap actually rolled — drives the
+  /// "Miss" legend pill. Seeded to [_seedMissLifeDelta] (-3, the band's
+  /// least-negative bound). Same per-band-memory semantics as
+  /// [lastHitLifeDelta].
+  final double lastMissLifeDelta;
+
   RunState copyWith({
     double? lifePct,
     int? roundStartMicros,
@@ -70,6 +87,8 @@ class RunState {
     int? lastDeltaMs,
     TimingBand? lastBand,
     double? lastLifeDelta,
+    double? lastHitLifeDelta,
+    double? lastMissLifeDelta,
   }) {
     return RunState(
       lifePct: lifePct ?? this.lifePct,
@@ -84,9 +103,26 @@ class RunState {
       lastDeltaMs: lastDeltaMs ?? this.lastDeltaMs,
       lastBand: lastBand ?? this.lastBand,
       lastLifeDelta: lastLifeDelta ?? this.lastLifeDelta,
+      // Same "passing null keeps the prior value" pattern as above. In
+      // practice `registerTap` always passes a non-null value for both of
+      // these (computed as "the new roll for the matching band, or the
+      // prior value for the other band") — the `?? this.field` fallback
+      // exists for API symmetry with the other fields, not because
+      // `registerTap` relies on it (architecture v4 §2.4).
+      lastHitLifeDelta: lastHitLifeDelta ?? this.lastHitLifeDelta,
+      lastMissLifeDelta: lastMissLifeDelta ?? this.lastMissLifeDelta,
     );
   }
 }
+
+/// v4 §2.3. NOTE THE ASYMMETRY — this is the one easy bug in gap 2:
+///  - Hit seed  = onPointLifeDeltaMin (+2.0): min IS the gentlest gain.
+///  - Miss seed = missLifeDeltaMAX  (-3.0): for Miss, max (-3, the LEAST
+///    negative bound) is the gentlest loss. missLifeDeltaMin is -5.0 (the
+///    HARSHEST loss) — seeding Miss to that would be wrong and would show
+///    "Miss -5%" pre-first-tap instead of the founder-confirmed "Miss -3%".
+const double _seedHitLifeDelta = TimingConfig.onPointLifeDeltaMin; // +2.0
+const double _seedMissLifeDelta = TimingConfig.missLifeDeltaMax; // -3.0
 
 /// *** PHASE 0 PLACEHOLDER *** — per-round target duration range, in
 /// microseconds. Round pacing isn't specced beyond the discovery doc's
@@ -134,8 +170,9 @@ class RunController extends Notifier<RunState> {
     // `CountdownView.build()` already relies on for `name`. If a future
     // entry point could reach Play before the repo resolves, this must be
     // revisited (it can't today).
-    final ProfileRepository repo =
-        ref.read(profileRepositoryProvider).requireValue;
+    final ProfileRepository repo = ref
+        .read(profileRepositoryProvider)
+        .requireValue;
 
     return RunState(
       lifePct: _startingLifePct,
@@ -143,6 +180,8 @@ class RunController extends Notifier<RunState> {
       targetDurationMicros: _rollTargetDurationMicros(),
       phase: RunPhase.countdown,
       deathCount: repo.deathCount,
+      lastHitLifeDelta: _seedHitLifeDelta,
+      lastMissLifeDelta: _seedMissLifeDelta,
     );
   }
 
@@ -175,7 +214,8 @@ class RunController extends Notifier<RunState> {
     if (state.phase != RunPhase.playing) return;
 
     final MonotonicClock clock = ref.read(clockProvider);
-    final int targetMicros = state.roundStartMicros + state.targetDurationMicros;
+    final int targetMicros =
+        state.roundStartMicros + state.targetDurationMicros;
 
     // `RunController` owns all nondeterminism (it already rolls target
     // durations) — the fresh `lifeRoll` is drawn here and passed into the
@@ -191,11 +231,29 @@ class RunController extends Notifier<RunState> {
 
     final double newLifePct = clampLifePct(state.lifePct + result.lifeDelta);
 
+    // Gap 2 (architecture v4 §2.4): update only the field matching this
+    // tap's band. A Perfect tap leaves both untouched (it drives neither
+    // pill); an On-point tap updates only `lastHitLifeDelta`; a Miss tap
+    // updates only `lastMissLifeDelta`.
+    final double nextHit = result.band == TimingBand.onPoint
+        ? result.lifeDelta
+        : state.lastHitLifeDelta;
+    final double nextMiss = result.band == TimingBand.miss
+        ? result.lifeDelta
+        : state.lastMissLifeDelta;
+
     if (newLifePct <= TimingConfig.minLifePct) {
       // Death: the cycle ends here (architecture v3 §3.1/§3.3). The fatal
       // tap's band/delta still records — the death state's flash still
       // shows what actually happened — but no new target is rolled; the
       // run is over.
+      //
+      // The fatal tap is always a Miss (life only reaches 0 via a negative
+      // delta), so this always updates `lastMissLifeDelta`. That value
+      // isn't user-visible (the screen switches to the death placeholder,
+      // and `startNewCycle()` reseeds before the pills are shown again),
+      // but setting it here keeps this branch uniform with the normal one
+      // below rather than special-casing it (architecture v4 §2.4).
       final int newDeathCount = state.deathCount + 1;
       state = state.copyWith(
         lifePct: newLifePct,
@@ -204,6 +262,8 @@ class RunController extends Notifier<RunState> {
         lastDeltaMs: result.deltaMs,
         lastBand: result.band,
         lastLifeDelta: result.lifeDelta,
+        lastHitLifeDelta: nextHit,
+        lastMissLifeDelta: nextMiss,
       );
 
       // Fire-and-forget — never await in the tap path.
@@ -220,6 +280,8 @@ class RunController extends Notifier<RunState> {
       lastDeltaMs: result.deltaMs,
       lastBand: result.band,
       lastLifeDelta: result.lifeDelta,
+      lastHitLifeDelta: nextHit,
+      lastMissLifeDelta: nextMiss,
     );
   }
 
@@ -236,6 +298,11 @@ class RunController extends Notifier<RunState> {
       targetDurationMicros: _rollTargetDurationMicros(),
       phase: RunPhase.countdown,
       deathCount: state.deathCount,
+      // Reseed both legend-pill fields — a fresh cycle must not carry over
+      // the dead cycle's rolled values (architecture v4 §2.4). Built as a
+      // fresh `RunState` here, not a `copyWith`, so this falls out directly.
+      lastHitLifeDelta: _seedHitLifeDelta,
+      lastMissLifeDelta: _seedMissLifeDelta,
     );
   }
 }

@@ -79,7 +79,8 @@ void main() {
   /// need a scored tap must call `beginPlaying()` first.
   void tapAtDelta(int deltaMicros) {
     final RunState before = container.read(runControllerProvider);
-    final int targetMicros = before.roundStartMicros + before.targetDurationMicros;
+    final int targetMicros =
+        before.roundStartMicros + before.targetDurationMicros;
     final int pressMicros = targetMicros + deltaMicros;
     clock.setMicros(pressMicros);
     container.read(runControllerProvider.notifier).registerTap(pressMicros);
@@ -113,40 +114,55 @@ void main() {
       expect(state.roundStartMicros, 0); // clock started at 0
     });
 
-    test('build() seeds deathCount from a non-zero ProfileRepository value', () async {
-      final FakeMonotonicClock freshClock = FakeMonotonicClock(0);
-      final FakeProfileRepository seededRepo = FakeProfileRepository(deathCount: 7);
-      final ProviderContainer freshContainer =
-          await buildContainer(clock: freshClock, repo: seededRepo);
-      addTearDown(freshContainer.dispose);
-
-      expect(freshContainer.read(runControllerProvider).deathCount, 7);
+    test('build() seeds lastHitLifeDelta to onPointLifeDeltaMin (+2) and '
+        'lastMissLifeDelta to missLifeDeltaMax (-3) — architecture v4 §2.3\'s '
+        'gentlest-value seed, note the asymmetry: Miss seeds to the range '
+        'MAX (least-negative), not the range min (most-negative)', () {
+      final RunState state = container.read(runControllerProvider);
+      expect(state.lastHitLifeDelta, TimingConfig.onPointLifeDeltaMin);
+      expect(state.lastHitLifeDelta, 2.0);
+      expect(state.lastMissLifeDelta, TimingConfig.missLifeDeltaMax);
+      expect(state.lastMissLifeDelta, -3.0);
     });
 
     test(
-      'registerTap is a no-op before beginPlaying() has ever been called — '
-      '"tap during countdown" must not score (architecture v3 §3.3)',
-      () {
-        // Never call `beginPlaying()` — the run is still in
-        // `RunPhase.countdown`.
-        final RunState before = container.read(runControllerProvider);
-        expect(before.phase, RunPhase.countdown);
-
-        expect(
-          () => container
-              .read(runControllerProvider.notifier)
-              .registerTap(before.roundStartMicros + 10000),
-          returnsNormally,
+      'build() seeds deathCount from a non-zero ProfileRepository value',
+      () async {
+        final FakeMonotonicClock freshClock = FakeMonotonicClock(0);
+        final FakeProfileRepository seededRepo = FakeProfileRepository(
+          deathCount: 7,
         );
+        final ProviderContainer freshContainer = await buildContainer(
+          clock: freshClock,
+          repo: seededRepo,
+        );
+        addTearDown(freshContainer.dispose);
 
-        final RunState after = container.read(runControllerProvider);
-        expect(after.phase, RunPhase.countdown);
-        expect(after.lastBand, isNull);
-        expect(after.lastDeltaMs, isNull);
-        expect(after.lastLifeDelta, isNull);
-        expect(after.lifePct, 100.0);
+        expect(freshContainer.read(runControllerProvider).deathCount, 7);
       },
     );
+
+    test('registerTap is a no-op before beginPlaying() has ever been called — '
+        '"tap during countdown" must not score (architecture v3 §3.3)', () {
+      // Never call `beginPlaying()` — the run is still in
+      // `RunPhase.countdown`.
+      final RunState before = container.read(runControllerProvider);
+      expect(before.phase, RunPhase.countdown);
+
+      expect(
+        () => container
+            .read(runControllerProvider.notifier)
+            .registerTap(before.roundStartMicros + 10000),
+        returnsNormally,
+      );
+
+      final RunState after = container.read(runControllerProvider);
+      expect(after.phase, RunPhase.countdown);
+      expect(after.lastBand, isNull);
+      expect(after.lastDeltaMs, isNull);
+      expect(after.lastLifeDelta, isNull);
+      expect(after.lifePct, 100.0);
+    });
   });
 
   group('beginPlaying() (play-screen-gate1-v1.md §1, step 2)', () {
@@ -172,8 +188,9 @@ void main() {
     });
 
     test('rolls a fresh targetDurationMicros within the valid range', () {
-      final int targetBefore =
-          container.read(runControllerProvider).targetDurationMicros;
+      final int targetBefore = container
+          .read(runControllerProvider)
+          .targetDurationMicros;
 
       container.read(runControllerProvider.notifier).beginPlaying();
 
@@ -191,8 +208,9 @@ void main() {
       // first for the tap below to register at all.
       container.read(runControllerProvider.notifier).beginPlaying();
       tapAtDelta(10000); // Perfect
-      final RunState beforeSecondBeginPlaying =
-          container.read(runControllerProvider);
+      final RunState beforeSecondBeginPlaying = container.read(
+        runControllerProvider,
+      );
 
       container.read(runControllerProvider.notifier).beginPlaying();
 
@@ -208,7 +226,8 @@ void main() {
       container.read(runControllerProvider.notifier).beginPlaying();
 
       final RunState state = container.read(runControllerProvider);
-      final int targetMicros = state.roundStartMicros + state.targetDurationMicros;
+      final int targetMicros =
+          state.roundStartMicros + state.targetDurationMicros;
       final int pressMicros = targetMicros + 10000; // 10ms Perfect
       clock.setMicros(pressMicros);
       container.read(runControllerProvider.notifier).registerTap(pressMicros);
@@ -247,18 +266,21 @@ void main() {
       }
     }
 
-    test('Perfect tap applies the fixed +3% life gain and records band/delta', () {
-      driveLifeDownForHeadroom();
-      final double before = container.read(runControllerProvider).lifePct;
+    test(
+      'Perfect tap applies the fixed +3% life gain and records band/delta',
+      () {
+        driveLifeDownForHeadroom();
+        final double before = container.read(runControllerProvider).lifePct;
 
-      tapAtDelta(10000); // 10ms -> Perfect
+        tapAtDelta(10000); // 10ms -> Perfect
 
-      final RunState state = container.read(runControllerProvider);
-      expect(state.lastBand, TimingBand.perfect);
-      expect(state.lastDeltaMs, 10);
-      expect(state.lastLifeDelta, TimingConfig.perfectLifeDelta);
-      expect(state.lifePct, before + TimingConfig.perfectLifeDelta);
-    });
+        final RunState state = container.read(runControllerProvider);
+        expect(state.lastBand, TimingBand.perfect);
+        expect(state.lastDeltaMs, 10);
+        expect(state.lastLifeDelta, TimingConfig.perfectLifeDelta);
+        expect(state.lifePct, before + TimingConfig.perfectLifeDelta);
+      },
+    );
 
     test('On-point tap applies a ranged life gain and records the actual '
         'rolled value in lastLifeDelta', () {
@@ -303,12 +325,102 @@ void main() {
     test('a boundary-exact 30ms tap is still Perfect through the controller '
         '(consistent with the pure resolve() boundary test)', () {
       tapAtDelta(30000);
-      expect(container.read(runControllerProvider).lastBand, TimingBand.perfect);
+      expect(
+        container.read(runControllerProvider).lastBand,
+        TimingBand.perfect,
+      );
     });
 
     test('a boundary-exact 81ms tap is a Miss through the controller', () {
       tapAtDelta(81000);
       expect(container.read(runControllerProvider).lastBand, TimingBand.miss);
+    });
+  });
+
+  group('per-band legend-pill fields (architecture v4 §2)', () {
+    setUp(() {
+      container.read(runControllerProvider.notifier).beginPlaying();
+    });
+
+    test('an On-point tap updates only lastHitLifeDelta, leaving '
+        'lastMissLifeDelta at its seed', () {
+      tapAtDelta(50000); // On-point
+
+      final RunState state = container.read(runControllerProvider);
+      expect(state.lastBand, TimingBand.onPoint);
+      expect(
+        state.lastHitLifeDelta,
+        inInclusiveRange(
+          TimingConfig.onPointLifeDeltaMin,
+          TimingConfig.onPointLifeDeltaMax,
+        ),
+      );
+      expect(state.lastHitLifeDelta, state.lastLifeDelta);
+      expect(state.lastMissLifeDelta, TimingConfig.missLifeDeltaMax); // seed
+    });
+
+    test('a Miss tap updates only lastMissLifeDelta, leaving '
+        'lastHitLifeDelta at its seed', () {
+      tapAtDelta(500000); // Miss
+
+      final RunState state = container.read(runControllerProvider);
+      expect(state.lastBand, TimingBand.miss);
+      expect(
+        state.lastMissLifeDelta,
+        inInclusiveRange(
+          TimingConfig.missLifeDeltaMin,
+          TimingConfig.missLifeDeltaMax,
+        ),
+      );
+      expect(state.lastMissLifeDelta, state.lastLifeDelta);
+      expect(state.lastHitLifeDelta, TimingConfig.onPointLifeDeltaMin); // seed
+    });
+
+    test('a Perfect tap changes neither lastHitLifeDelta nor '
+        'lastMissLifeDelta', () {
+      // Roll both fields away from their seeds first (one On-point, one
+      // Miss tap) so this test proves Perfect leaves *whatever value was
+      // already there* untouched, not just the seed default.
+      tapAtDelta(50000); // On-point
+      tapAtDelta(500000); // Miss
+      final RunState before = container.read(runControllerProvider);
+
+      tapAtDelta(10000); // Perfect
+
+      final RunState after = container.read(runControllerProvider);
+      expect(after.lastBand, TimingBand.perfect);
+      expect(after.lastHitLifeDelta, before.lastHitLifeDelta);
+      expect(after.lastMissLifeDelta, before.lastMissLifeDelta);
+    });
+
+    test('an On-point tap followed by a Miss tap leaves the Hit pill '
+        'showing the On-point value — independent per-band memory, not the '
+        'single most-recent-tap pair', () {
+      tapAtDelta(50000); // On-point
+      final double hitAfterOnPoint = container
+          .read(runControllerProvider)
+          .lastHitLifeDelta;
+
+      tapAtDelta(500000); // Miss
+
+      final RunState state = container.read(runControllerProvider);
+      expect(state.lastBand, TimingBand.miss); // lastBand IS overwritten...
+      expect(state.lastHitLifeDelta, hitAfterOnPoint); // ...but Hit isn't.
+    });
+
+    test('the fatal (death-triggering) tap still updates its band-matching '
+        'field before phase flips to dead — the fatal tap is always a '
+        'Miss, so lastMissLifeDelta is updated', () {
+      final RunState finalState = tapUntilDead();
+      expect(finalState.phase, RunPhase.dead);
+      expect(finalState.lastBand, TimingBand.miss);
+      expect(
+        finalState.lastMissLifeDelta,
+        inInclusiveRange(
+          TimingConfig.missLifeDeltaMin,
+          TimingConfig.missLifeDeltaMax,
+        ),
+      );
     });
   });
 
@@ -318,8 +430,12 @@ void main() {
     });
 
     test('roundStartMicros and targetDurationMicros change after each tap', () {
-      final int initialRoundStart = container.read(runControllerProvider).roundStartMicros;
-      final int initialTarget = container.read(runControllerProvider).targetDurationMicros;
+      final int initialRoundStart = container
+          .read(runControllerProvider)
+          .roundStartMicros;
+      final int initialTarget = container
+          .read(runControllerProvider)
+          .targetDurationMicros;
 
       tapAtDelta(10000);
       final RunState afterFirst = container.read(runControllerProvider);
@@ -339,14 +455,19 @@ void main() {
       expect(initialTarget, greaterThanOrEqualTo(3000000));
     });
 
-    test('target duration stays in [3_000_000, 20_000_000) across 50 rounds', () {
-      for (int i = 0; i < 50; i++) {
-        tapAtDelta(10000);
-        final int t = container.read(runControllerProvider).targetDurationMicros;
-        expect(t, greaterThanOrEqualTo(3000000));
-        expect(t, lessThan(20000000));
-      }
-    });
+    test(
+      'target duration stays in [3_000_000, 20_000_000) across 50 rounds',
+      () {
+        for (int i = 0; i < 50; i++) {
+          tapAtDelta(10000);
+          final int t = container
+              .read(runControllerProvider)
+              .targetDurationMicros;
+          expect(t, greaterThanOrEqualTo(3000000));
+          expect(t, lessThan(20000000));
+        }
+      },
+    );
   });
 
   group('life accumulates and clamps correctly across a full sequence', () {
@@ -354,36 +475,47 @@ void main() {
       container.read(runControllerProvider.notifier).beginPlaying();
     });
 
-    test('repeated Perfect taps accumulate additively (fixed +3 each) before clamping', () {
-      // Drive life down first — 100-start would otherwise clamp a Perfect
-      // tap immediately and the accumulation wouldn't be observable.
-      for (int i = 0; i < 5; i++) {
-        tapAtDelta(500000); // Miss, creates headroom
-      }
-      final double before = container.read(runControllerProvider).lifePct;
+    test(
+      'repeated Perfect taps accumulate additively (fixed +3 each) before clamping',
+      () {
+        // Drive life down first — 100-start would otherwise clamp a Perfect
+        // tap immediately and the accumulation wouldn't be observable.
+        for (int i = 0; i < 5; i++) {
+          tapAtDelta(500000); // Miss, creates headroom
+        }
+        final double before = container.read(runControllerProvider).lifePct;
 
-      tapAtDelta(10000);
-      tapAtDelta(10000);
-      tapAtDelta(10000);
+        tapAtDelta(10000);
+        tapAtDelta(10000);
+        tapAtDelta(10000);
 
-      expect(
-        container.read(runControllerProvider).lifePct,
-        before + 3 * TimingConfig.perfectLifeDelta,
-      );
-    });
+        expect(
+          container.read(runControllerProvider).lifePct,
+          before + 3 * TimingConfig.perfectLifeDelta,
+        );
+      },
+    );
 
-    test('life clamps at exactly 100.0 and stays there under further Perfect taps', () {
-      for (int i = 0; i < 20; i++) {
-        tapAtDelta(10000); // Perfect, +3 each; starts at 100 already
-        if (container.read(runControllerProvider).phase != RunPhase.playing) break;
-      }
-      expect(container.read(runControllerProvider).lifePct, 100.0);
+    test(
+      'life clamps at exactly 100.0 and stays there under further Perfect taps',
+      () {
+        for (int i = 0; i < 20; i++) {
+          tapAtDelta(10000); // Perfect, +3 each; starts at 100 already
+          if (container.read(runControllerProvider).phase != RunPhase.playing) {
+            break;
+          }
+        }
+        expect(container.read(runControllerProvider).lifePct, 100.0);
 
-      // One more Perfect tap must not push it past 100 or corrupt state.
-      tapAtDelta(10000);
-      expect(container.read(runControllerProvider).lifePct, 100.0);
-      expect(container.read(runControllerProvider).lastBand, TimingBand.perfect);
-    });
+        // One more Perfect tap must not push it past 100 or corrupt state.
+        tapAtDelta(10000);
+        expect(container.read(runControllerProvider).lifePct, 100.0);
+        expect(
+          container.read(runControllerProvider).lastBand,
+          TimingBand.perfect,
+        );
+      },
+    );
 
     test('repeated Misses eventually reach exactly 0.0 and the run ends '
         '(phase == dead) — the old "exactly 25 Miss taps" test is invalid '
@@ -484,6 +616,37 @@ void main() {
       expect(afterRestart.targetDurationMicros, lessThan(20000000));
       // Lifetime, not per-run — must survive the restart.
       expect(afterRestart.deathCount, 1);
+      // Architecture v4 §2.4: a fresh cycle must reseed both legend-pill
+      // fields, not carry over the dead cycle's rolled values.
+      expect(afterRestart.lastHitLifeDelta, TimingConfig.onPointLifeDeltaMin);
+      expect(afterRestart.lastMissLifeDelta, TimingConfig.missLifeDeltaMax);
+    });
+
+    test('startNewCycle() reseeds lastHitLifeDelta/lastMissLifeDelta back to '
+        'their gentlest-value defaults even after a prior cycle rolled them '
+        'away from those defaults (architecture v4 §2.4)', () {
+      // Roll lastHitLifeDelta to +3 specifically (away from its +2 seed)
+      // by repeating an On-point tap until the roll lands on the
+      // non-seed member of {2.0, 3.0} — bounded so a pathological run of
+      // bad luck still can't hang the test.
+      double hitRoll = container.read(runControllerProvider).lastHitLifeDelta;
+      int attempts = 0;
+      while (hitRoll == TimingConfig.onPointLifeDeltaMin && attempts < 200) {
+        tapAtDelta(50000); // On-point
+        hitRoll = container.read(runControllerProvider).lastHitLifeDelta;
+        attempts++;
+      }
+      expect(hitRoll, TimingConfig.onPointLifeDeltaMax); // confirms +3 rolled
+
+      final RunState dead = tapUntilDead();
+      expect(dead.phase, RunPhase.dead);
+      expect(dead.lastHitLifeDelta, TimingConfig.onPointLifeDeltaMax);
+
+      container.read(runControllerProvider.notifier).startNewCycle();
+
+      final RunState afterRestart = container.read(runControllerProvider);
+      expect(afterRestart.lastHitLifeDelta, TimingConfig.onPointLifeDeltaMin);
+      expect(afterRestart.lastMissLifeDelta, TimingConfig.missLifeDeltaMax);
     });
 
     test('the fresh cycle can be played through beginPlaying() exactly like '
@@ -507,19 +670,22 @@ void main() {
       container.read(runControllerProvider.notifier).beginPlaying();
     });
 
-    test('a very large delta (1000 seconds off target) is a Miss and does not throw', () {
-      expect(() => tapAtDelta(1000000000), returnsNormally);
-      final RunState state = container.read(runControllerProvider);
-      expect(state.lastBand, TimingBand.miss);
-      expect(state.lastDeltaMs, 1000000);
-      expect(
-        state.lastLifeDelta,
-        inInclusiveRange(
-          TimingConfig.missLifeDeltaMin,
-          TimingConfig.missLifeDeltaMax,
-        ),
-      );
-    });
+    test(
+      'a very large delta (1000 seconds off target) is a Miss and does not throw',
+      () {
+        expect(() => tapAtDelta(1000000000), returnsNormally);
+        final RunState state = container.read(runControllerProvider);
+        expect(state.lastBand, TimingBand.miss);
+        expect(state.lastDeltaMs, 1000000);
+        expect(
+          state.lastLifeDelta,
+          inInclusiveRange(
+            TimingConfig.missLifeDeltaMin,
+            TimingConfig.missLifeDeltaMax,
+          ),
+        );
+      },
+    );
 
     test('rapid repeated registerTap calls (no clock advance between them) '
         'do not throw and keep life within [0, 100] at every step, and stop '
@@ -531,12 +697,17 @@ void main() {
       // state.
       for (int i = 0; i < 500; i++) {
         final RunState before = container.read(runControllerProvider);
-        final int targetMicros = before.roundStartMicros + before.targetDurationMicros;
+        final int targetMicros =
+            before.roundStartMicros + before.targetDurationMicros;
         // Alternate between hitting and missing without moving the clock
         // forward, to also vary target math edge alignment.
-        final int pressMicros = i.isEven ? targetMicros : targetMicros + 1000000;
+        final int pressMicros = i.isEven
+            ? targetMicros
+            : targetMicros + 1000000;
         expect(
-          () => container.read(runControllerProvider.notifier).registerTap(pressMicros),
+          () => container
+              .read(runControllerProvider.notifier)
+              .registerTap(pressMicros),
           returnsNormally,
         );
         final RunState after = container.read(runControllerProvider);
@@ -555,7 +726,9 @@ void main() {
       // than throwing or producing a negative deltaMs.
       final int pressMicros = before.roundStartMicros - 1;
       expect(
-        () => container.read(runControllerProvider.notifier).registerTap(pressMicros),
+        () => container
+            .read(runControllerProvider.notifier)
+            .registerTap(pressMicros),
         returnsNormally,
       );
       final RunState after = container.read(runControllerProvider);
@@ -567,13 +740,19 @@ void main() {
         'again after a single Miss has moved life below it', () {
       // At the 100% start.
       tapAtDelta(80000); // exactly onPointMs boundary
-      expect(container.read(runControllerProvider).lastBand, TimingBand.onPoint);
+      expect(
+        container.read(runControllerProvider).lastBand,
+        TimingBand.onPoint,
+      );
 
       // After life has moved (one Miss, still comfortably above 0).
       tapAtDelta(500000); // Miss
       expect(container.read(runControllerProvider).phase, RunPhase.playing);
       tapAtDelta(80000); // exactly onPointMs boundary again, at a lower lifePct
-      expect(container.read(runControllerProvider).lastBand, TimingBand.onPoint);
+      expect(
+        container.read(runControllerProvider).lastBand,
+        TimingBand.onPoint,
+      );
     });
   });
 }
