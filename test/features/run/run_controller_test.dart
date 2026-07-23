@@ -331,8 +331,8 @@ void main() {
       );
     });
 
-    test('a boundary-exact 81ms tap is a Miss through the controller', () {
-      tapAtDelta(81000);
+    test('a boundary-exact 201ms tap is a Miss through the controller', () {
+      tapAtDelta(201000);
       expect(container.read(runControllerProvider).lastBand, TimingBand.miss);
     });
   });
@@ -739,7 +739,7 @@ void main() {
         'of the current lifePct (k == 0.0) — checked at the 100% start and '
         'again after a single Miss has moved life below it', () {
       // At the 100% start.
-      tapAtDelta(80000); // exactly onPointMs boundary
+      tapAtDelta(200000); // exactly onPointMs boundary
       expect(
         container.read(runControllerProvider).lastBand,
         TimingBand.onPoint,
@@ -748,7 +748,7 @@ void main() {
       // After life has moved (one Miss, still comfortably above 0).
       tapAtDelta(500000); // Miss
       expect(container.read(runControllerProvider).phase, RunPhase.playing);
-      tapAtDelta(80000); // exactly onPointMs boundary again, at a lower lifePct
+      tapAtDelta(200000); // exactly onPointMs boundary again, at a lower lifePct
       expect(
         container.read(runControllerProvider).lastBand,
         TimingBand.onPoint,

@@ -72,38 +72,38 @@ void main() {
       expect(result.lifeDelta, TimingConfig.onPointLifeDeltaMin);
     });
 
-    test('delta == exactly 80ms (onPointMs) is still On-point (inclusive boundary)', () {
+    test('delta == exactly 200ms (onPointMs) is still On-point (inclusive boundary)', () {
       final result = resolve(
         targetMicros: target,
-        pressMicros: target + 80000,
+        pressMicros: target + 200000,
         lifePct: midLife,
         lifeRoll: 0.0,
       );
       expect(result.band, TimingBand.onPoint);
-      expect(result.deltaMs, 80);
+      expect(result.deltaMs, 200);
       expect(result.lifeDelta, TimingConfig.onPointLifeDeltaMin);
     });
 
-    test('delta == exactly -80ms (press before target) is still On-point', () {
+    test('delta == exactly -200ms (press before target) is still On-point', () {
       final result = resolve(
         targetMicros: target,
-        pressMicros: target - 80000,
+        pressMicros: target - 200000,
         lifePct: midLife,
         lifeRoll: 0.0,
       );
       expect(result.band, TimingBand.onPoint);
-      expect(result.deltaMs, 80);
+      expect(result.deltaMs, 200);
     });
 
-    test('delta == 81ms (just past onPointMs) is a Miss', () {
+    test('delta == 201ms (just past onPointMs) is a Miss', () {
       final result = resolve(
         targetMicros: target,
-        pressMicros: target + 81000,
+        pressMicros: target + 201000,
         lifePct: midLife,
         lifeRoll: 0.0,
       );
       expect(result.band, TimingBand.miss);
-      expect(result.deltaMs, 81);
+      expect(result.deltaMs, 201);
       expect(result.lifeDelta, TimingConfig.missLifeDeltaMin);
     });
 
@@ -120,17 +120,17 @@ void main() {
           reason: 'true delta (30.2ms) exceeds the 30ms Perfect window');
     });
 
-    test('delta == 80.2ms rounds deltaMs to 80 but is a Miss, not On-point '
+    test('delta == 200.2ms rounds deltaMs to 200 but is a Miss, not On-point '
         '(guards against banding on the rounded display value)', () {
       final result = resolve(
         targetMicros: target,
-        pressMicros: target + 80200,
+        pressMicros: target + 200200,
         lifePct: midLife,
         lifeRoll: 0.0,
       );
-      expect(result.deltaMs, 80, reason: 'display value rounds down to 80');
+      expect(result.deltaMs, 200, reason: 'display value rounds down to 200');
       expect(result.band, TimingBand.miss,
-          reason: 'true delta (80.2ms) exceeds the 80ms On-point window');
+          reason: 'true delta (200.2ms) exceeds the 200ms On-point window');
     });
 
     test('a large delta is a Miss', () {
@@ -146,16 +146,16 @@ void main() {
   });
 
   group('resolve() adaptive-k scaffold stays disabled', () {
-    test('an 80ms delta is On-point regardless of lifePct (k == 0.0)', () {
+    test('a 200ms delta is On-point regardless of lifePct (k == 0.0)', () {
       final atLowLife = resolve(
         targetMicros: target,
-        pressMicros: target + 80000,
+        pressMicros: target + 200000,
         lifePct: 0.0,
         lifeRoll: 0.0,
       );
       final atHighLife = resolve(
         targetMicros: target,
-        pressMicros: target + 80000,
+        pressMicros: target + 200000,
         lifePct: 100.0,
         lifeRoll: 0.0,
       );

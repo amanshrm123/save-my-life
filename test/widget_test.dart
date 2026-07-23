@@ -472,7 +472,7 @@ void main() {
           life = container.read(runControllerProvider).lifePct;
           expect(life, before + 3.0);
 
-          // Round: On-point (50ms, inside +-80ms, outside +-30ms) — ranged
+          // Round: On-point (50ms, inside +-200ms, outside +-30ms) — ranged
           // [+2, +3].
           before = life;
           await tapAtDelta(tester, 50000);
@@ -481,7 +481,7 @@ void main() {
           life = container.read(runControllerProvider).lifePct;
           expect(life - before, inInclusiveRange(2.0, 3.0));
 
-          // Round: Miss (500ms, well outside +-80ms) — ranged [-5, -3].
+          // Round: Miss (500ms, well outside +-200ms) — ranged [-5, -3].
           before = life;
           await tapAtDelta(tester, 500000);
           expect(find.textContaining('DELTA: 500 ms'), findsOneWidget);
@@ -976,7 +976,7 @@ void main() {
         final RunState before = container.read(runControllerProvider);
         final int targetMicros =
             before.roundStartMicros + before.targetDurationMicros;
-        clock.setMicros(targetMicros + 50000); // On-point (inside +-80ms)
+        clock.setMicros(targetMicros + 50000); // On-point (inside +-200ms)
         await tester.tap(_findButtonTapSurface());
         await tester.pump();
 

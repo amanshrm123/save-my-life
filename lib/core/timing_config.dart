@@ -14,7 +14,17 @@ class TimingConfig {
 
   /// On-point band: |delta| <= this many ms (and > [perfectMs]).
   /// Beyond this is a Miss.
-  static const int onPointMs = 80;
+  ///
+  /// Widened from 80 to 200 (architecture v5 §1): the Play task is interval
+  /// estimation with no external metronome to align to, so timing error is
+  /// dominated by the player's own internal clock and scales with the
+  /// target duration (Weber's law / scalar property). The old 80ms window
+  /// was narrower than one standard deviation of error even at the easiest
+  /// (3s) target, making genuine On-point taps too rare to visibly surface
+  /// the {2.0, 3.0} roll variety in the Hit legend pill. 200ms is calibrated
+  /// to make On-point common enough to vary during real play while keeping
+  /// Perfect (30ms) elite and Miss a real threat at longer intervals.
+  static const int onPointMs = 200;
 
   /// Life gained on a Perfect tap. Fixed, never rolled (architecture v3
   /// §4.1: Perfect is the guaranteed elite-tolerance reward ceiling — if it
