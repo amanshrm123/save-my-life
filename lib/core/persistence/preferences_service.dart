@@ -55,4 +55,28 @@ class PreferencesService {
   Future<void> setSchemaVersion(int value) {
     return _prefs.setInt(kKeySchemaVersion, value);
   }
+
+  int get totalRunsPlayed {
+    try {
+      return _prefs.getInt(kKeyTotalRunsPlayed) ?? 0;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  Future<void> setTotalRunsPlayed(int value) {
+    return _prefs.setInt(kKeyTotalRunsPlayed, value);
+  }
+
+  int get totalDeaths {
+    try {
+      return _prefs.getInt(kKeyTotalDeaths) ?? 0;
+    } catch (_) {
+      return 0;
+    }
+  }
+
+  Future<void> setTotalDeaths(int value) {
+    return _prefs.setInt(kKeyTotalDeaths, value);
+  }
 }

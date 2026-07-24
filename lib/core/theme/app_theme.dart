@@ -18,6 +18,13 @@ class AppColors {
   static const Color greenDark = Color(0xFF1F9C58);
 
   static const Color red = Color(0xFFF0483E);
+
+  /// "Red-dark" companion to [red] — the final-band STOP button's label
+  /// text-shadow (`0 1.5px 0 #b8362e`). Not present in the mockup's `:root`
+  /// unlike its siblings (`coralDark`/`greenDark`/`goldDark`); promoted to a
+  /// real token here per design spec v1 §1.2 rather than left as a magic hex.
+  static const Color redDark = Color(0xFFB8362E);
+
   static const Color gold = Color(0xFFFFC23C);
   static const Color goldDark = Color(0xFFE5A516);
 
@@ -30,6 +37,12 @@ class AppColors {
 
   /// Inactive page-dot fill. Distinct from [mute] and [bodyMute].
   static const Color dotInactive = Color(0xFFA7C4B8);
+
+  /// The 4th gray (Play Loop design spec v1 §1.1) — the life-bar meta
+  /// caption ("Life 47%") baseline color. Distinct from [mute] (used for
+  /// the "Target" reminder) and [bodyMute] (countdown/pause body copy) —
+  /// don't collapse into either.
+  static const Color hudMute = Color(0xFF3F5651);
 
   static const Color blue = Color(0xFF4A9FD8);
 }

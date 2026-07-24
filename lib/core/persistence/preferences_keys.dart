@@ -16,3 +16,9 @@ const String kKeyOnboardingComplete = 'onboarding_complete';
 
 /// The player's chosen display name. String, default '' (absent == anonymous).
 const String kKeyPlayerName = 'player_name';
+
+/// Lifetime count of completed Play Loop runs (any outcome). int, default 0.
+const String kKeyTotalRunsPlayed = 'total_runs_played';
+
+/// Lifetime count of runs that ended in death. int, default 0.
+const String kKeyTotalDeaths = 'total_deaths';

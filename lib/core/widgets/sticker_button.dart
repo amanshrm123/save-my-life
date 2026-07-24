@@ -24,6 +24,9 @@ class StickerButton extends StatefulWidget {
     this.borderRadius = 14,
     this.restShadowOffset = 5,
     this.pressedShadowOffset = 2,
+    this.textColor = Colors.white,
+    this.showLabelTextShadow = true,
+    this.fontSize,
   });
 
   final String label;
@@ -35,6 +38,19 @@ class StickerButton extends StatefulWidget {
   final double borderRadius;
   final double restShadowOffset;
   final double pressedShadowOffset;
+
+  /// Label text color — white by default (every onboarding usage), but the
+  /// Play Loop `.ghostbtn` variant (design spec v1 §1.6) needs ink text on a
+  /// paper fill instead.
+  final Color textColor;
+
+  /// The `.ghostbtn` variant has no white text-shadow at all (only the
+  /// button's own box shadow) — set false to suppress it.
+  final bool showLabelTextShadow;
+
+  /// Overrides `AppTypography.buttonLabel`'s 14dp default when a caller
+  /// needs a distinct size (e.g. the pause modal's `.ghostbtn`, 13dp).
+  final double? fontSize;
 
   @override
   State<StickerButton> createState() => _StickerButtonState();
@@ -110,13 +126,17 @@ class _StickerButtonState extends State<StickerButton>
               child: Text(
                 widget.label,
                 style: AppTypography.buttonLabel.copyWith(
-                  shadows: [
-                    Shadow(
-                      color: widget.labelShadow,
-                      offset: const Offset(0, 1.5),
-                      blurRadius: 0,
-                    ),
-                  ],
+                  color: widget.textColor,
+                  fontSize: widget.fontSize,
+                  shadows: widget.showLabelTextShadow
+                      ? [
+                          Shadow(
+                            color: widget.labelShadow,
+                            offset: const Offset(0, 1.5),
+                            blurRadius: 0,
+                          ),
+                        ]
+                      : null,
                 ),
               ),
             ),
