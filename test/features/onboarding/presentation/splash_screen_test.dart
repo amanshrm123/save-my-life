@@ -5,10 +5,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timing_tap/core/persistence/preferences_keys.dart';
 import 'package:timing_tap/core/persistence/preferences_service.dart';
 import 'package:timing_tap/core/routing/app_routes.dart';
+import 'package:timing_tap/features/home/presentation/home_screen.dart';
 import 'package:timing_tap/features/onboarding/presentation/onboarding_screen.dart';
 import 'package:timing_tap/features/onboarding/presentation/splash_screen.dart';
 import 'package:timing_tap/features/onboarding/state/onboarding_providers.dart';
-import 'package:timing_tap/features/placeholder/placeholder_home_screen.dart';
 
 Future<PreferencesService> _service(Map<String, Object> prefs) async {
   SharedPreferences.setMockInitialValues(prefs);
@@ -23,7 +23,7 @@ Widget _app(PreferencesService service) {
       routes: {
         AppRoutes.splash: (context) => const SplashScreen(),
         AppRoutes.onboarding: (context) => const OnboardingScreen(),
-        AppRoutes.placeholderHome: (context) => const PlaceholderHomeScreen(),
+        AppRoutes.home: (context) => const HomeScreen(),
       },
     ),
   );
@@ -44,13 +44,13 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byType(OnboardingScreen), findsOneWidget);
-      expect(find.byType(PlaceholderHomeScreen), findsNothing);
+      expect(find.byType(HomeScreen), findsNothing);
       expect(find.byType(SplashScreen), findsNothing);
     },
   );
 
   testWidgets(
-    'branches to PlaceholderHomeScreen when onboarding_complete is true',
+    'branches to HomeScreen when onboarding_complete is true',
     (tester) async {
       final service = await _service({kKeyOnboardingComplete: true});
 
@@ -60,7 +60,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 1700));
       await tester.pumpAndSettle();
 
-      expect(find.byType(PlaceholderHomeScreen), findsOneWidget);
+      expect(find.byType(HomeScreen), findsOneWidget);
       expect(find.byType(OnboardingScreen), findsNothing);
       expect(find.byType(SplashScreen), findsNothing);
     },

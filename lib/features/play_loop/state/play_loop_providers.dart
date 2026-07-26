@@ -3,11 +3,14 @@ import 'dart:math';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../onboarding/state/onboarding_providers.dart' show preferencesServiceProvider;
+import '../../onboarding/state/onboarding_providers.dart'
+    show preferencesServiceProvider, playerProfileProvider;
+import '../../progression/state/stats_providers.dart';
 import '../data/run_stats_repository.dart';
 import '../domain/game_clock.dart';
 import '../domain/run_config.dart';
 import '../domain/run_state.dart';
+import '../domain/run_summary.dart';
 import '../domain/scoring.dart';
 
 /// Lifetime Run/Deaths totals live in prefs, not session state (architecture
@@ -165,6 +168,8 @@ class RunController extends Notifier<RunState> {
     // Normal (non-final-band) attempt.
     final delta = lifeDeltaForTier(tier, config);
     final newLife = (state.lifePercent + delta).clamp(0, 100);
+    final newPeak = newLife > state.peakLifePercent ? newLife : state.peakLifePercent;
+    final newMin = newLife < state.minLifePercent ? newLife : state.minLifePercent;
     final newAttemptIndex = state.attemptIndex + 1;
     final streakIntact = state.perfectStreakIntact && tier == StopTier.perfect;
     final eternalReached =
@@ -183,6 +188,8 @@ class RunController extends Notifier<RunState> {
     state = state.copyWith(
       phase: RunPhase.stopped,
       lifePercent: newLife,
+      peakLifePercent: newPeak,
+      minLifePercent: newMin,
       lastTier: tier,
       lastStopElapsed: stopped,
       lastStopWasFinalBand: false,
@@ -210,22 +217,40 @@ class RunController extends Notifier<RunState> {
           outcome: RunOutcome.death,
           deaths: state.deaths + 1,
         );
-        _persistRunCompleted(wasDeath: true);
+        _persistRunCompleted();
       case _PendingAdvance.endEternal:
         state = state.copyWith(phase: RunPhase.ended, outcome: RunOutcome.eternal);
-        _persistRunCompleted(wasDeath: false);
+        _persistRunCompleted();
       case _PendingAdvance.endSurvived:
         state = state.copyWith(phase: RunPhase.ended, outcome: RunOutcome.survived);
-        _persistRunCompleted(wasDeath: false);
+        _persistRunCompleted();
     }
   }
 
-  /// Fire-and-forget: the lifetime Run/Deaths totals are a durability
+  /// Fire-and-forget: the lifetime totals + daily streak are a durability
   /// backup, not something navigation gates on (architecture v2 §6,
-  /// revised). `RunStatsRepository` swallows its own write failures.
-  void _persistRunCompleted({required bool wasDeath}) {
+  /// revised; v3 §2). `RunStatsRepository`/`StatsController` swallow their
+  /// own write failures.
+  void _persistRunCompleted() {
     unawaited(
-      ref.read(runStatsRepositoryProvider).recordRunCompleted(wasDeath: wasDeath),
+      ref.read(statsProvider.notifier).registerRunCompletion(buildSummary()),
+    );
+  }
+
+  /// Builds the `RunSummary` the outcome screen needs (architecture v3 §2/§3)
+  /// — called by the screen at the moment `phase == ended` is observed, from
+  /// the freshly-ended `state`.
+  RunSummary buildSummary() {
+    final profile = ref.read(playerProfileProvider).value;
+    final name = (profile == null || profile.isAnonymous) ? '' : profile.name;
+    return RunSummary(
+      outcome: state.outcome ?? RunOutcome.death,
+      runNumber: state.runNumber,
+      lifetimeDeaths: state.deaths,
+      peakLifePercent: state.peakLifePercent,
+      minLifePercent: state.minLifePercent,
+      perfectCount: state.attemptIndex,
+      playerName: name,
     );
   }
 
@@ -260,7 +285,8 @@ class RunController extends Notifier<RunState> {
     state = state.copyWith(phase: restorePhase, phaseBeforePause: null);
   }
 
-  /// Full reset: life -> 100%, fresh target, this run's progress abandoned.
+  /// Full reset: life -> `RunConfig.startLifePercent`, fresh target, this
+  /// run's progress abandoned.
   /// Per architecture v2 §10 flag 7, restart does **not** increment the Run
   /// counter — and by the same logic must not reset the session's Deaths
   /// count either, since that's not part of "this run's progress" — only

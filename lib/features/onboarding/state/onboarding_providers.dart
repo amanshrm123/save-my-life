@@ -41,6 +41,17 @@ class PlayerProfileNotifier extends AsyncNotifier<PlayerProfile> {
     state = AsyncData(profile);
     return profile;
   }
+
+  /// Settings' "edit name" flow (architecture v3 §7) — reuses the same
+  /// terminal write path as onboarding's `completeWithName` (onboarding is
+  /// already complete by the time this is reachable, so re-asserting it is
+  /// harmless) rather than adding a near-duplicate repository method.
+  Future<PlayerProfile> updateName(String name) async {
+    final repo = ref.read(playerProfileRepositoryProvider);
+    final profile = await repo.completeWithName(name);
+    state = AsyncData(profile);
+    return profile;
+  }
 }
 
 final AsyncNotifierProvider<PlayerProfileNotifier, PlayerProfile>

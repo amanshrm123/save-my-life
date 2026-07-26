@@ -93,7 +93,7 @@ void main() {
       final state = readState(tester);
       expect(state.phase, RunPhase.paused);
       expect(state.phaseBeforePause, RunPhase.armed);
-      expect(state.lifePercent, 100, reason: 'a discarded in-flight attempt costs no life');
+      expect(state.lifePercent, 50, reason: 'a discarded in-flight attempt costs no life');
       expect(find.byType(PauseOverlay), findsOneWidget);
     },
   );

@@ -8,6 +8,9 @@ class AppRoutes {
 
   static const String splash = '/';
   static const String onboarding = '/onboarding';
-  static const String placeholderHome = '/home';
+  static const String home = '/home';
   static const String play = '/play';
+  static const String settings = '/settings';
+  static const String stats = '/stats';
+  static const String reminderOptIn = '/reminder-opt-in';
 }

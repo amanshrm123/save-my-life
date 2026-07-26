@@ -1,8 +1,8 @@
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
+import '../feedback/feedback.dart';
 import '../theme/app_theme.dart';
 
 /// The "sticker button" pattern (design spec v1 §1.4): a thick ink-bordered,
@@ -76,7 +76,7 @@ class _StickerButtonState extends State<StickerButton>
 
   void _onTapDown(TapDownDetails details) {
     if (!_interactive) return;
-    HapticFeedback.lightImpact();
+    AppFeedback.lightImpactIfEnabled();
     _controller.animateTo(1, duration: const Duration(milliseconds: 90), curve: Curves.easeOut);
   }
 

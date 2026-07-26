@@ -6,8 +6,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timing_tap/core/persistence/preferences_keys.dart';
 import 'package:timing_tap/core/persistence/preferences_service.dart';
 import 'package:timing_tap/features/onboarding/state/onboarding_providers.dart'
-    show preferencesServiceProvider;
+    show preferencesServiceProvider, playerProfileProvider;
 import 'package:timing_tap/features/play_loop/domain/run_state.dart';
+import 'package:timing_tap/features/play_loop/domain/run_summary.dart';
 import 'package:timing_tap/features/play_loop/state/play_loop_providers.dart';
 
 /// `RunController`/`RunState` state-machine coverage (architecture v2 §5) —
@@ -71,12 +72,12 @@ void main() {
   const missOffset = Duration(seconds: 5);
 
   group('fresh run seeding (architecture v2 §6)', () {
-    test('build() seeds phase=countdown, life=100%, attempt 0, streak intact', () async {
+    test('build() seeds phase=countdown, life=50%, attempt 0, streak intact', () async {
       final container = await buildContainer();
       final state = container.read(runControllerProvider);
 
       expect(state.phase, RunPhase.countdown);
-      expect(state.lifePercent, 100);
+      expect(state.lifePercent, 50);
       expect(state.attemptIndex, 0);
       expect(state.perfectStreakIntact, isTrue);
       expect(state.outcome, isNull);
@@ -573,7 +574,7 @@ void main() {
 
       expect(c.state.phase, RunPhase.paused);
       expect(c.state.phaseBeforePause, RunPhase.armed);
-      expect(c.state.lifePercent, 100, reason: 'no life penalty for a discarded attempt');
+      expect(c.state.lifePercent, 50, reason: 'no life penalty for a discarded attempt');
       expect(c.state.attemptIndex, 0, reason: 'a discarded attempt must not count');
 
       c.resume();
@@ -654,7 +655,7 @@ void main() {
 
   group('restartRun() — regression: preserves runNumber AND deaths, resets '
       'everything else (architecture v2 §6/§10 flag 7)', () {
-    test('restartRun() resets life to 100%, target, attemptIndex, and the '
+    test('restartRun() resets life to 50%, target, attemptIndex, and the '
         'perfect streak, and moves to armed', () async {
       final container = await buildContainer({kKeyTotalRunsPlayed: 4, kKeyTotalDeaths: 1});
       final c = container.read(runControllerProvider.notifier);
@@ -665,7 +666,7 @@ void main() {
       c.restartRun();
 
       expect(c.state.phase, RunPhase.armed);
-      expect(c.state.lifePercent, 100);
+      expect(c.state.lifePercent, 50);
       expect(c.state.attemptIndex, 0);
       expect(c.state.perfectStreakIntact, isTrue);
       expect(c.state.lastTier, isNull);
@@ -687,7 +688,17 @@ void main() {
       // Simulate some *other* run completing independently and bumping the
       // persisted lifetime totals, without going through this controller.
       final repo = container.read(runStatsRepositoryProvider);
-      await repo.recordRunCompleted(wasDeath: true);
+      await repo.recordRunCompleted(
+        const RunSummary(
+          outcome: RunOutcome.death,
+          runNumber: 0,
+          lifetimeDeaths: 0,
+          peakLifePercent: 0,
+          minLifePercent: 0,
+          perfectCount: 0,
+          playerName: '',
+        ),
+      );
       expect(repo.totalRunsPlayed, 5);
       expect(repo.totalDeaths, 2);
 
@@ -820,6 +831,134 @@ void main() {
 
       expect(cB.state.runNumber, 2, reason: 'totalRunsPlayed was persisted as 1');
       expect(cB.state.deaths, 1, reason: 'totalDeaths was persisted as 1');
+    });
+  });
+
+  group('peak/min life tracking (architecture v3 §2) — RunState.peakLifePercent/minLifePercent', () {
+    test('both start seeded at RunConfig.startLifePercent (50) on a fresh run', () async {
+      final container = await buildContainer();
+      final state = container.read(runControllerProvider);
+
+      expect(state.peakLifePercent, 50);
+      expect(state.minLifePercent, 50);
+    });
+
+    test('a Perfect raises the peak but leaves the min at the starting floor', () async {
+      final container = await buildContainer();
+      final c = container.read(runControllerProvider.notifier);
+      c.arm();
+
+      forceStop(c, perfectOffset); // 50 -> 53
+
+      expect(c.state.lifePercent, 53);
+      expect(c.state.peakLifePercent, 53);
+      expect(c.state.minLifePercent, 50);
+    });
+
+    test('a subsequent Miss lowers the min while the peak stays at its '
+        'already-reached high-water mark', () async {
+      final container = await buildContainer();
+      final c = container.read(runControllerProvider.notifier);
+      c.arm();
+      forceStop(c, perfectOffset); // 50 -> 53, peak 53
+      c.advanceAfterDwell(); // stopped -> armed (rearm)
+      forceStop(c, missOffset); // 53 -> 48
+
+      expect(c.state.lifePercent, 48);
+      expect(c.state.peakLifePercent, 53, reason: 'peak must not fall back down');
+      expect(c.state.minLifePercent, 48);
+    });
+
+    test('a later recovery above the min (but below the peak) moves '
+        'neither peak nor min — both only ever move toward their extreme', () async {
+      final container = await buildContainer();
+      final c = container.read(runControllerProvider.notifier);
+      c.arm();
+      forceStop(c, perfectOffset); // 50 -> 53, peak 53
+      c.advanceAfterDwell();
+      forceStop(c, missOffset); // 53 -> 48, min 48
+      c.advanceAfterDwell();
+      forceStop(c, hitOffset); // 48 -> 50, between the min and peak
+
+      expect(c.state.lifePercent, 50);
+      expect(c.state.peakLifePercent, 53, reason: 'unchanged: 50 < 53');
+      expect(c.state.minLifePercent, 48, reason: 'unchanged: 50 > 48');
+    });
+  });
+
+  group('buildSummary() (architecture v3 §2) — RunSummary construction from the ended state', () {
+    Future<ProviderContainer> buildContainerWithName(
+      String name, {
+      Map<String, Object> extraPrefs = const {},
+    }) async {
+      SharedPreferences.setMockInitialValues({kKeyPlayerName: name, ...extraPrefs});
+      final service = await PreferencesService.create();
+      final container = ProviderContainer(
+        overrides: [preferencesServiceProvider.overrideWithValue(service)],
+      );
+      addTearDown(container.dispose);
+      // Let the AsyncNotifier resolve so buildSummary() reads a settled
+      // (non-null) profile value, matching how the real screen would only
+      // build the card after the profile has already loaded.
+      await container.read(playerProfileProvider.future);
+      return container;
+    }
+
+    test('a death outcome: outcome/runNumber/lifetimeDeaths/peak/min/playerName '
+        'are all populated from the just-ended state', () async {
+      final container = await buildContainerWithName('Aman', extraPrefs: {kKeyTotalRunsPlayed: 1, kKeyTotalDeaths: 0});
+      final c = container.read(runControllerProvider.notifier);
+      c.arm();
+      c.state = c.state.copyWith(lifePercent: 5);
+
+      forceStop(c, missOffset); // 5 - 5 = 0 -> death
+      c.advanceAfterDwell();
+
+      final summary = c.buildSummary();
+
+      expect(summary.outcome, RunOutcome.death);
+      expect(summary.runNumber, c.state.runNumber);
+      expect(summary.lifetimeDeaths, 1, reason: 'deaths already incremented by advanceAfterDwell');
+      expect(summary.peakLifePercent, c.state.peakLifePercent);
+      expect(summary.minLifePercent, 0);
+      expect(summary.playerName, 'Aman');
+      expect(summary.isAnonymous, isFalse);
+    });
+
+    test('a survived outcome (final-band non-miss): outcome is survived and '
+        'min/peak reflect the run, and an empty stored name renders anonymous', () async {
+      final container = await buildContainerWithName('');
+      final c = container.read(runControllerProvider.notifier);
+      c.state = c.state.copyWith(phase: RunPhase.finalBandArmed, lifePercent: 4);
+
+      forceStop(c, perfectOffset); // non-miss in final band -> survived
+      c.advanceAfterDwell();
+
+      final summary = c.buildSummary();
+
+      expect(summary.outcome, RunOutcome.survived);
+      expect(summary.playerName, '');
+      expect(summary.isAnonymous, isTrue);
+    });
+
+    test('an eternal outcome: perfectCount matches the configured '
+        'eternalPerfectCount (3 perfects in a row from a fresh run)', () async {
+      final container = await buildContainerWithName('Zoe');
+      final c = container.read(runControllerProvider.notifier);
+      c.arm();
+
+      forceStop(c, perfectOffset);
+      c.advanceAfterDwell();
+      forceStop(c, perfectOffset);
+      c.advanceAfterDwell();
+      forceStop(c, perfectOffset);
+      c.advanceAfterDwell(); // -> eternal
+
+      final summary = c.buildSummary();
+
+      expect(summary.outcome, RunOutcome.eternal);
+      expect(summary.perfectCount, 3);
+      expect(summary.playerName, 'Zoe');
     });
   });
 }

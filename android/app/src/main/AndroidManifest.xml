@@ -1,4 +1,12 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Daily-reminder notifications (architecture v3 §8): Android 13+
+         requires runtime consent for POST_NOTIFICATIONS, requested via the
+         flutter_local_notifications plugin. RECEIVE_BOOT_COMPLETED lets the
+         scheduled reminder survive a device reboot. Only inexact scheduling
+         is used (`AndroidScheduleMode.inexactAllowWhileIdle`), so no
+         SCHEDULE_EXACT_ALARM/USE_EXACT_ALARM permission is requested. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <application
         android:label="timing_tap"
         android:name="${applicationName}"
@@ -30,6 +38,18 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+        <!-- flutter_local_notifications: delivers a scheduled reminder when
+             its alarm fires, and reschedules across a device reboot. -->
+        <receiver android:exported="false"
+            android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver" />
+        <receiver android:exported="false"
+            android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationBootReceiver">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+            </intent-filter>
+        </receiver>
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and

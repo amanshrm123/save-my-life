@@ -45,6 +45,44 @@ class AppColors {
   static const Color hudMute = Color(0xFF3F5651);
 
   static const Color blue = Color(0xFF4A9FD8);
+
+  /// Positive/neutral "note" chip text color (design v3 §1.1/§1.3) — the
+  /// streak-broken hint (6.3). A genuine 5th gray, distinct from [mute]/
+  /// [bodyMute]/[dotInactive]/[hudMute].
+  static const Color noteText = Color(0xFF5C6F6A);
+
+  /// Positive/neutral note-chip background (design v3 §1.3).
+  static const Color noteBg = Color(0xFFDBEEE4);
+
+  /// Error note-chip background — pinned exactly by design v3 §1.3 (reused
+  /// as-is from onboarding's inline name-rejection treatment).
+  static const Color errorNoteBg = Color(0xFFFDE3E3);
+
+  /// Survived outcome-cardbox background (design v3 §1.2) — a genuine 4th
+  /// light surface color, distinct from [paper]/[bg]/[paper2].
+  static const Color cardSurviveBg = Color(0xFFE3F7EE);
+
+  /// Eternal outcome-cardbox's catalog-line + `stayalive.app` mark color
+  /// (design v3 §1.2) — overrides the default tier color on the solid-gold
+  /// fill (dark/low-saturation, matching the ARM plate's contrast rule).
+  static const Color eternalNo = Color(0xFF8A5A00);
+
+  /// Eternal outcome-cardbox's flavor-line body text color (design v3 §1.2).
+  static const Color eternalWay = Color(0xFF6B4600);
+
+  /// Eternal outcome-cardbox's colored-name-span color (design v3 §1.2) —
+  /// the gold-bg analog of [coral] used on paper/mint cards.
+  static const Color eternalName = Color(0xFFB5500E);
+
+  /// Ad-chrome palette (design v3 §1.4) — deliberately off-palette, used
+  /// only by the two full ad screens (5.1/5.3) so they read as "someone
+  /// else's UI," never reused elsewhere in the app.
+  static const Color adBg = Color(0xFF2A3540);
+  static const Color adSubtext = Color(0xFFAEB9C4);
+  static const Color adInstallFill = Color(0xFF4AD991);
+  static const Color adInstallText = Color(0xFF0C2A1C);
+  static const Color adFootText = Color(0xFF7C8894);
+  static const Color adChipBg = Color(0x29FFFFFF); // rgba(255,255,255,0.16)
 }
 
 /// Fredoka text styles used across screens 1.1-1.5 (design spec v1 §1.2).

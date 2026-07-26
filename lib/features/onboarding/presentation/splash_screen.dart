@@ -1,10 +1,13 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/routing/app_page_transitions.dart';
 import '../../../core/routing/app_routes.dart';
 import '../../../core/theme/app_theme.dart';
-import '../../placeholder/placeholder_home_screen.dart';
+import '../../home/presentation/home_screen.dart';
+import '../../notifications/state/reminder_providers.dart';
 import '../domain/player_profile.dart';
 import '../state/onboarding_providers.dart';
 import 'onboarding_screen.dart';
@@ -48,6 +51,11 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
     final profileFuture = ref.read(playerProfileProvider.future);
     _progressController.forward();
 
+    // App-start reconciliation (architecture v3 §11 risk 1) — fire-and-
+    // forget, never gates navigation; a failed/no-op reschedule is swallowed
+    // by `ReminderController`/`ReminderService` themselves.
+    unawaited(ref.read(reminderControllerProvider.notifier).reconcile());
+
     final results = await Future.wait<Object?>([
       profileFuture,
       Future<void>.delayed(_progressDuration + _holdDuration),
@@ -62,10 +70,10 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
     Navigator.of(context).pushReplacement(
       fadeSlideRoute(
         settings: RouteSettings(
-          name: goingHome ? AppRoutes.placeholderHome : AppRoutes.onboarding,
+          name: goingHome ? AppRoutes.home : AppRoutes.onboarding,
         ),
         builder: (context) => goingHome
-            ? const PlaceholderHomeScreen()
+            ? const HomeScreen()
             : const OnboardingScreen(),
       ),
     );

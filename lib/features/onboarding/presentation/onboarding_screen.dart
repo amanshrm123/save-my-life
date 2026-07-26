@@ -101,7 +101,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen>
       return;
     }
     if (!mounted) return;
-    Navigator.of(context).pushReplacementNamed(AppRoutes.placeholderHome);
+    Navigator.of(context).pushReplacementNamed(AppRoutes.home);
   }
 
   Future<void> _onStartPlaying() async {

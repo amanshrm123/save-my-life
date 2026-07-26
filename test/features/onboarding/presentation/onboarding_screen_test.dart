@@ -41,7 +41,7 @@ Widget _appWithOverrides(List<Override> overrides) {
       initialRoute: AppRoutes.onboarding,
       routes: {
         AppRoutes.onboarding: (context) => const OnboardingScreen(),
-        AppRoutes.placeholderHome: (context) =>
+        AppRoutes.home: (context) =>
             const Scaffold(body: Center(child: Text('placeholder-home'))),
       },
     ),

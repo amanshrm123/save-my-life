@@ -1,13 +1,16 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/feedback/audio_service.dart';
+import '../../../core/feedback/feedback.dart';
 import '../../../core/routing/app_page_transitions.dart';
 import '../../../core/routing/app_routes.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../onboarding/state/onboarding_providers.dart';
-import '../../placeholder/placeholder_outcome_screen.dart';
+import '../../outcome/presentation/outcome_card_screen.dart';
 import '../domain/clock_format.dart';
 import '../domain/run_config.dart';
 import '../domain/run_state.dart';
@@ -28,8 +31,8 @@ import 'widgets/target_arm_button.dart';
 /// auto-pause (architecture v2 §9 risk 1), and the pause overlay host.
 ///
 /// Only two real `Navigator` transitions touch this screen: it is pushed
-/// from Home, and it `pushReplacement`s to `PlaceholderOutcomeScreen` once
-/// (architecture v2 §9 risk 5) when `phase == ended`.
+/// from Home, and it `pushReplacement`s to `OutcomeCardScreen` once
+/// (architecture v2 §9 risk 5; v3 §3) when `phase == ended`.
 class PlayLoopScreen extends ConsumerStatefulWidget {
   const PlayLoopScreen({super.key});
 
@@ -84,7 +87,7 @@ class _PlayLoopScreenState extends ConsumerState<PlayLoopScreen>
     }
 
     if (next.phase == RunPhase.finalBandArmed && previous?.phase != RunPhase.finalBandArmed) {
-      HapticFeedback.heavyImpact();
+      AppFeedback.heavyImpactIfEnabled();
     }
 
     if (next.phase == RunPhase.ended && next.outcome != null) {
@@ -93,12 +96,15 @@ class _PlayLoopScreenState extends ConsumerState<PlayLoopScreen>
   }
 
   void _onStopped(RunState state) {
+    final audio = ref.read(audioServiceProvider);
     switch (state.lastTier) {
       case StopTier.perfect:
       case StopTier.hit:
-        HapticFeedback.mediumImpact();
+        AppFeedback.mediumImpactIfEnabled();
+        unawaited(audio.playHit());
       case StopTier.miss:
-        HapticFeedback.heavyImpact();
+        AppFeedback.heavyImpactIfEnabled();
+        unawaited(audio.playMiss());
       case null:
         break;
     }
@@ -111,10 +117,11 @@ class _PlayLoopScreenState extends ConsumerState<PlayLoopScreen>
   void _handOffToOutcome(RunOutcome outcome) {
     if (_handedOff) return;
     _handedOff = true;
+    final summary = ref.read(runControllerProvider.notifier).buildSummary();
     Navigator.of(context).pushReplacement(
       fadeSlideRoute(
         settings: const RouteSettings(name: '/play/outcome'),
-        builder: (context) => PlaceholderOutcomeScreen(outcome: outcome),
+        builder: (context) => OutcomeCardScreen(summary: summary),
       ),
     );
   }
@@ -122,8 +129,13 @@ class _PlayLoopScreenState extends ConsumerState<PlayLoopScreen>
   void _onPause() => ref.read(runControllerProvider.notifier).pause();
   void _onResume() => ref.read(runControllerProvider.notifier).resume();
   void _onRestart() => ref.read(runControllerProvider.notifier).restartRun();
-  void _onQuit() => Navigator.of(context).popUntil((r) => r.settings.name == AppRoutes.placeholderHome);
-  void _onArm() => ref.read(runControllerProvider.notifier).startRunning();
+  void _onQuit() => Navigator.of(context).popUntil((r) => r.settings.name == AppRoutes.home);
+
+  void _onArm() {
+    unawaited(ref.read(audioServiceProvider).playTap());
+    ref.read(runControllerProvider.notifier).startRunning();
+  }
+
   void _onStopTap() => ref.read(runControllerProvider.notifier).registerStop();
 
   @override

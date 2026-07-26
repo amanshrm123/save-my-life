@@ -4,7 +4,7 @@
 /// resolved; the exact numbers below remain tunable).
 class RunConfig {
   const RunConfig({
-    this.startLifePercent = 100,
+    this.startLifePercent = 50,
     this.perfectDelta = 3,
     this.hitDelta = 2,
     this.missDelta = -5,

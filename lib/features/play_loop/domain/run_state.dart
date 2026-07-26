@@ -32,6 +32,8 @@ class RunState {
     required this.deaths,
     required this.attemptIndex,
     required this.perfectStreakIntact,
+    required this.peakLifePercent,
+    required this.minLifePercent,
     this.lastTier,
     this.lastStopElapsed,
     this.lastStopWasFinalBand = false,
@@ -59,6 +61,12 @@ class RunState {
   /// to detect the Eternal ending (first N all Perfect).
   final int attemptIndex;
   final bool perfectStreakIntact;
+
+  /// Highest/lowest `lifePercent` ever observed this run (architecture v3
+  /// §2) — tracked by `RunController.registerStop` so the outcome card can
+  /// show "Peaked at N%" / "Down to N%" without re-deriving it from history.
+  final int peakLifePercent;
+  final int minLifePercent;
 
   /// Drives the post-stop flash. Only meaningful while [phase] is
   /// [RunPhase.stopped].
@@ -91,6 +99,8 @@ class RunState {
     deaths: 0,
     attemptIndex: 0,
     perfectStreakIntact: true,
+    peakLifePercent: RunConfig.defaults.startLifePercent,
+    minLifePercent: RunConfig.defaults.startLifePercent,
   );
 
   RunState copyWith({
@@ -101,6 +111,8 @@ class RunState {
     int? deaths,
     int? attemptIndex,
     bool? perfectStreakIntact,
+    int? peakLifePercent,
+    int? minLifePercent,
     bool? lastStopWasFinalBand,
     Object? lastTier = _unset,
     Object? lastStopElapsed = _unset,
@@ -115,6 +127,8 @@ class RunState {
       deaths: deaths ?? this.deaths,
       attemptIndex: attemptIndex ?? this.attemptIndex,
       perfectStreakIntact: perfectStreakIntact ?? this.perfectStreakIntact,
+      peakLifePercent: peakLifePercent ?? this.peakLifePercent,
+      minLifePercent: minLifePercent ?? this.minLifePercent,
       lastStopWasFinalBand:
           lastStopWasFinalBand ?? this.lastStopWasFinalBand,
       lastTier: identical(lastTier, _unset)
@@ -136,5 +150,6 @@ class RunState {
   String toString() =>
       'RunState(phase: $phase, life: $lifePercent, target: $target, '
       'run: $runNumber, deaths: $deaths, attempt: $attemptIndex, '
-      'lastTier: $lastTier, outcome: $outcome)';
+      'lastTier: $lastTier, outcome: $outcome, peak: $peakLifePercent, '
+      'min: $minLifePercent)';
 }
