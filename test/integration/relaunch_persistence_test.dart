@@ -37,7 +37,9 @@ void main() {
       await pumpPastCountdown(tester);
       await tapThroughToQuickDeath(tester);
       expect(find.byType(OutcomeCardScreen), findsOneWidget);
-      expect(find.text('💀 You died'), findsOneWidget);
+      // `OutcomeChip` uppercases its label (design v1 §3/§5); Death's copy
+      // itself is unchanged.
+      expect(find.text('💀 YOU DIED'), findsOneWidget);
 
       await tester.tap(find.text('Again'));
       await tester.pumpAndSettle();
@@ -46,7 +48,9 @@ void main() {
       await pumpPastCountdown(tester);
       await forceEndSurvived(tester);
       expect(find.byType(OutcomeCardScreen), findsOneWidget);
-      expect(find.text('🛟 Survived'), findsOneWidget);
+      // 🆘, not 🛟 (founder-resolved tofu-rendering swap, design v1
+      // §0/§4.2), and uppercased by `OutcomeChip`.
+      expect(find.text('🆘 SURVIVED'), findsOneWidget);
 
       // Persisted state right before the "relaunch".
       expect(service.totalRunsPlayed, 2);

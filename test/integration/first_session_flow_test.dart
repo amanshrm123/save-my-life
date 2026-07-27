@@ -45,7 +45,9 @@ void main() {
       await tapThroughToQuickDeath(tester);
 
       expect(find.byType(OutcomeCardScreen), findsOneWidget);
-      expect(find.text('💀 You died'), findsOneWidget);
+      // `OutcomeChip` uppercases its label (design v1 §3/§5); Death's copy
+      // itself is unchanged.
+      expect(find.text('💀 YOU DIED'), findsOneWidget);
       expect(service.totalRunsPlayed, 1);
       expect(service.totalDeaths, 1);
 

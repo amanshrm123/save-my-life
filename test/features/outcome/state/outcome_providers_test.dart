@@ -1,183 +1,240 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:timing_tap/features/outcome/domain/death_lines.dart';
+import 'package:timing_tap/features/outcome/application/outcome_story_service.dart';
+import 'package:timing_tap/features/outcome/domain/outcome_story_content.dart';
 import 'package:timing_tap/features/outcome/state/outcome_providers.dart';
 import 'package:timing_tap/features/play_loop/domain/run_state.dart';
 import 'package:timing_tap/features/play_loop/domain/run_summary.dart';
 
-/// Regression coverage for the death-card sub-line copy fix
-/// (`outcome_providers.dart`): `priorDeaths = lifetimeDeaths - 1`, not
-/// `lifetimeDeaths` itself, and correct singular/plural wording — pins the
-/// exact bug found and fixed this session so it can never silently regress.
+/// Coverage for `outcomeStoryProvider` (architecture v4 §2/§3) — replaces the
+/// deleted `outcome_providers_test.dart`'s coverage of the old
+/// `outcomeCardContentProvider` (which built the now-removed
+/// catalog/sub-line content synchronously). The new provider's whole job is
+/// the min-2s `Future.wait` floor and family-identity caching, both
+/// regression-critical per this session's design/architecture docs.
+///
+/// These use `testWidgets` (not plain `test()`) even though no widget is
+/// pumped, specifically to run inside `flutter_test`'s fake-async test zone
+/// so `tester.pump(duration)` can deterministically advance the 2-second
+/// `Future.delayed` floor without genuinely waiting 2 real seconds per test
+/// — the same technique `test/integration/*_test.dart` relies on implicitly
+/// via `pumpAndSettle`.
 void main() {
-  RunSummary deathSummary({required int lifetimeDeaths, int peak = 42}) {
+  // Deliberately NOT `const`: `RunSummary`'s constructor is const-capable,
+  // and two `const` calls with identical arguments would canonicalize to
+  // the exact same object (Dart's constant-canonicalization) — which would
+  // silently defeat the "two different instances" identity test below. A
+  // plain (non-const) call always allocates a fresh, distinct instance,
+  // matching what `RunController` actually hands `OutcomeCardScreen` in
+  // production (never a compile-time constant).
+  RunSummary summary() {
     return RunSummary(
       outcome: RunOutcome.death,
       runNumber: 1,
-      lifetimeDeaths: lifetimeDeaths,
-      peakLifePercent: peak,
-      minLifePercent: 0,
+      lifetimeDeaths: 1,
+      peakLifePercent: 90,
+      minLifePercent: 2,
       perfectCount: 0,
-      playerName: '',
+      playerName: 'Aman',
     );
   }
 
-  ProviderContainer buildContainer() {
-    final container = ProviderContainer();
-    addTearDown(container.dispose);
-    return container;
-  }
+  testWidgets(
+    'an instant-resolving fetch still does not resolve before the 2s floor '
+    '(max(fetch, 2s), not near-instant)',
+    (tester) async {
+      final container = ProviderContainer(
+        overrides: [outcomeStoryServiceProvider.overrideWithValue(_InstantFakeService())],
+      );
+      addTearDown(container.dispose);
 
-  group('death card sub-line — priorDeaths off-by-one regression', () {
-    test('a player\'s very first-ever death (lifetimeDeaths == 1) omits the '
-        '"Survived N deaths first" clause entirely (priorDeaths == 0)', () {
-      final container = buildContainer();
-      final summary = deathSummary(lifetimeDeaths: 1, peak: 61);
+      var resolved = false;
+      final sub = container.listen<AsyncValue<OutcomeStoryContent>>(
+        outcomeStoryProvider(summary()),
+        (previous, next) {
+          if (next is AsyncData<OutcomeStoryContent>) resolved = true;
+        },
+      );
+      addTearDown(sub.close);
 
-      final content = container.read(outcomeCardContentProvider(summary));
-
-      expect(content.subLine, 'Peaked at 61%.');
-      expect(content.subLine, isNot(contains('Survived')));
-    });
-
-    test('lifetimeDeaths == 2 -> exactly 1 prior death -> singular "1 death"', () {
-      final container = buildContainer();
-      final summary = deathSummary(lifetimeDeaths: 2, peak: 55);
-
-      final content = container.read(outcomeCardContentProvider(summary));
-
-      expect(content.subLine, 'Survived 1 death first. Peaked at 55%.');
-      expect(content.subLine, isNot(contains('1 deaths')));
-    });
-
-    test('lifetimeDeaths == 3 -> exactly 2 prior deaths -> plural "2 deaths", '
-        'NOT the raw lifetimeDeaths value (the off-by-one this test pins)', () {
-      final container = buildContainer();
-      final summary = deathSummary(lifetimeDeaths: 3, peak: 40);
-
-      final content = container.read(outcomeCardContentProvider(summary));
-
-      expect(content.subLine, 'Survived 2 deaths first. Peaked at 40%.');
+      await tester.pump(); // let the fetch's own (instant) future settle
       expect(
-        content.subLine,
-        isNot(contains('Survived 3')),
-        reason: 'a reverted off-by-one would read lifetimeDeaths directly, not lifetimeDeaths - 1',
-      );
-    });
-
-    test('a large lifetimeDeaths (118) still reports exactly one fewer, '
-        'pluralized', () {
-      final container = buildContainer();
-      final summary = deathSummary(lifetimeDeaths: 118, peak: 30);
-
-      final content = container.read(outcomeCardContentProvider(summary));
-
-      expect(content.subLine, 'Survived 117 deaths first. Peaked at 30%.');
-    });
-
-    test('catalogLine always reads "Death #N of 1000" regardless of the '
-        'priorDeaths math (sanity: the two are independent)', () {
-      final container = buildContainer();
-      final summary = deathSummary(lifetimeDeaths: 10);
-
-      final content = container.read(outcomeCardContentProvider(summary));
-
-      expect(content.catalogLine, startsWith('Death #'));
-      expect(content.catalogLine, endsWith(' of 1000'));
-    });
-  });
-
-  group('survived/eternal sub-lines (sanity, not the regression under test)', () {
-    test('survived sub-line reports minLifePercent via the fixed template', () {
-      final container = buildContainer();
-      const summary = RunSummary(
-        outcome: RunOutcome.survived,
-        runNumber: 1,
-        lifetimeDeaths: 0,
-        peakLifePercent: 20,
-        minLifePercent: 3,
-        perfectCount: 0,
-        playerName: '',
+        resolved,
+        isFalse,
+        reason: 'the fetch resolved instantly, but the 2s floor must still hold',
       );
 
-      final content = container.read(outcomeCardContentProvider(summary));
+      await tester.pump(const Duration(milliseconds: 1900));
+      expect(resolved, isFalse, reason: 'still short of the 2s floor');
 
-      expect(content.catalogLine, 'Last-second save');
-      expect(content.subLine, contains('Down to 3%'));
-    });
+      await tester.pump(const Duration(milliseconds: 150));
+      expect(resolved, isTrue, reason: 'now past the 2s floor');
+    },
+  );
 
-    test('eternal catalog line reports perfectCount/eternalPerfectCount and '
-        'the sub-line is the pooled qualitative flex text (not RunSummary-derived)', () {
-      final container = buildContainer();
-      const summary = RunSummary(
-        outcome: RunOutcome.eternal,
-        runNumber: 1,
-        lifetimeDeaths: 0,
-        peakLifePercent: 100,
-        minLifePercent: 50,
-        perfectCount: 3,
-        playerName: '',
+  testWidgets(
+    'total resolve time is max(fetchTime, 2s), not fetchTime + 2s — a fetch '
+    'that itself takes 500ms still resolves by ~2s, not ~2.5s',
+    (tester) async {
+      final container = ProviderContainer(
+        overrides: [
+          outcomeStoryServiceProvider.overrideWithValue(
+            _DelayedFakeService(const Duration(milliseconds: 500)),
+          ),
+        ],
       );
+      addTearDown(container.dispose);
 
-      final content = container.read(outcomeCardContentProvider(summary));
-
-      expect(content.catalogLine, 'Perfect start · 3/3');
-      expect(content.subLine, isNotEmpty);
-      expect(content.subLine, isNot(contains('%')));
-    });
-  });
-
-  group('immediate-repeat avoidance across consecutive deaths in one session '
-      '(player-reviewer finding, fixed this session)', () {
-    test('two back-to-back deaths in the same container never show the same '
-        'flavor line twice in a row, across many repeated trials', () {
-      // Run this many times since it's probabilistic without the fix (1/50
-      // chance of a coincidental repeat) but deterministic with it (0/50).
-      for (var trial = 0; trial < 30; trial++) {
-        final container = buildContainer();
-        final first = container.read(
-          outcomeCardContentProvider(deathSummary(lifetimeDeaths: 1)),
-        );
-        final second = container.read(
-          outcomeCardContentProvider(deathSummary(lifetimeDeaths: 2)),
-        );
-
-        expect(
-          second.flavorEntryAnonymous,
-          isNot(first.flavorEntryAnonymous),
-          reason: 'trial $trial: the second death repeated the first '
-              'death\'s exact flavor line in the same session',
-        );
-      }
-    });
-
-    test('a third death in the same session is still just excluded from '
-        'repeating the immediately-previous pick, not the one before that '
-        '(this is immediate-repeat avoidance, not full history dedupe)', () {
-      final container = buildContainer();
-      final first = container.read(
-        outcomeCardContentProvider(deathSummary(lifetimeDeaths: 1)),
+      var resolved = false;
+      final sub = container.listen<AsyncValue<OutcomeStoryContent>>(
+        outcomeStoryProvider(summary()),
+        (previous, next) {
+          if (next is AsyncData<OutcomeStoryContent>) resolved = true;
+        },
       );
-      final second = container.read(
-        outcomeCardContentProvider(deathSummary(lifetimeDeaths: 2)),
-      );
-      expect(second.flavorEntryAnonymous, isNot(first.flavorEntryAnonymous));
+      addTearDown(sub.close);
 
-      // A third pick is only guaranteed to differ from the *second*, not
-      // necessarily from the first (deliberately lightweight — see
-      // FlavorSelector's doc comment). We can't assert it always differs
-      // from `first` since with only 50 entries wrapping back to the first
-      // one two picks later is legitimate, expected behavior.
-      final third = container.read(
-        outcomeCardContentProvider(deathSummary(lifetimeDeaths: 3)),
+      // If this were fetch + 2s (2.5s total), pumping only 2.1s would leave
+      // it unresolved. Under the correct max() semantics it must already be
+      // resolved by 2.1s (the fetch's own 500ms ran concurrently).
+      await tester.pump(const Duration(milliseconds: 2100));
+      expect(
+        resolved,
+        isTrue,
+        reason: 'Future.wait must run the fetch and the 2s delay concurrently, not '
+            'sequentially — a summed 2.5s wait would still be pending here',
       );
-      expect(third.flavorEntryAnonymous, isNot(second.flavorEntryAnonymous));
-    });
+    },
+  );
 
-    test('death pool has enough entries that immediate-repeat avoidance is '
-        'meaningful (guards against a future content-pool shrink making this '
-        'moot)', () {
-      expect(deathLines.length, greaterThan(1));
-    });
-  });
+  testWidgets(
+    'a slow fetch (3s) still governs the total time — the 2s floor never '
+    'truncates a legitimately slower real fetch',
+    (tester) async {
+      final container = ProviderContainer(
+        overrides: [
+          outcomeStoryServiceProvider.overrideWithValue(
+            _DelayedFakeService(const Duration(seconds: 3)),
+          ),
+        ],
+      );
+      addTearDown(container.dispose);
+
+      var resolved = false;
+      final sub = container.listen<AsyncValue<OutcomeStoryContent>>(
+        outcomeStoryProvider(summary()),
+        (previous, next) {
+          if (next is AsyncData<OutcomeStoryContent>) resolved = true;
+        },
+      );
+      addTearDown(sub.close);
+
+      await tester.pump(const Duration(milliseconds: 2100));
+      expect(resolved, isFalse, reason: 'the fetch itself has not completed yet');
+
+      await tester.pump(const Duration(milliseconds: 1000));
+      expect(resolved, isTrue, reason: 'now past the slower 3s fetch time');
+    },
+  );
+
+  testWidgets(
+    'the family caches by RunSummary identity — the same instance resolves '
+    'once, and rewatching/re-reading never re-fetches or re-rolls',
+    (tester) async {
+      final fake = _CountingFakeService();
+      final container = ProviderContainer(
+        overrides: [outcomeStoryServiceProvider.overrideWithValue(fake)],
+      );
+      addTearDown(container.dispose);
+
+      final theSummary = summary();
+      final sub = container.listen<AsyncValue<OutcomeStoryContent>>(
+        outcomeStoryProvider(theSummary),
+        (previous, next) {},
+      );
+      addTearDown(sub.close);
+
+      await tester.pump(const Duration(seconds: 3));
+      expect(fake.calls, 1);
+
+      final first = container.read(outcomeStoryProvider(theSummary)).value;
+      expect(first, isNotNull);
+
+      // Re-reading (simulating a rebuild, e.g. the share toast toggling)
+      // must not trigger a second fetch/roll.
+      final second = container.read(outcomeStoryProvider(theSummary)).value;
+      expect(second, same(first));
+      expect(fake.calls, 1, reason: 'rewatching the same RunSummary instance must not re-fetch');
+
+      // A second, separately-listened read (as a different consumer would
+      // do) must also see the cached value, not trigger another fetch.
+      final third = container.read(outcomeStoryProvider(theSummary)).value;
+      expect(third, same(first));
+      expect(fake.calls, 1);
+    },
+  );
+
+  testWidgets(
+    'two different RunSummary instances (even with identical field values) '
+    'are cached and fetched independently — the family keys by instance, '
+    'per architecture v4 §3',
+    (tester) async {
+      final fake = _CountingFakeService();
+      final container = ProviderContainer(
+        overrides: [outcomeStoryServiceProvider.overrideWithValue(fake)],
+      );
+      addTearDown(container.dispose);
+
+      final summaryA = summary();
+      final summaryB = summary();
+
+      final subA = container.listen<AsyncValue<OutcomeStoryContent>>(
+        outcomeStoryProvider(summaryA),
+        (previous, next) {},
+      );
+      addTearDown(subA.close);
+      final subB = container.listen<AsyncValue<OutcomeStoryContent>>(
+        outcomeStoryProvider(summaryB),
+        (previous, next) {},
+      );
+      addTearDown(subB.close);
+
+      await tester.pump(const Duration(seconds: 3));
+      expect(fake.calls, 2, reason: 'two distinct RunSummary instances -> two independent fetches');
+    },
+  );
+}
+
+class _InstantFakeService implements OutcomeStoryService {
+  @override
+  Future<OutcomeStoryContent> fetchStory(RunSummary summary) async {
+    return OutcomeStoryContent.naFor;
+  }
+}
+
+class _DelayedFakeService implements OutcomeStoryService {
+  _DelayedFakeService(this.delay);
+  final Duration delay;
+
+  @override
+  Future<OutcomeStoryContent> fetchStory(RunSummary summary) async {
+    await Future<void>.delayed(delay);
+    return OutcomeStoryContent.naFor;
+  }
+}
+
+class _CountingFakeService implements OutcomeStoryService {
+  int calls = 0;
+
+  @override
+  Future<OutcomeStoryContent> fetchStory(RunSummary summary) async {
+    calls++;
+    return OutcomeStoryContent(
+      headline: 'H$calls',
+      storyNamed: 'S$calls {name}',
+      storyAnonymous: 'A$calls',
+      icon: 'I$calls',
+      isFallback: false,
+    );
+  }
 }

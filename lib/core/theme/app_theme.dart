@@ -58,21 +58,10 @@ class AppColors {
   /// as-is from onboarding's inline name-rejection treatment).
   static const Color errorNoteBg = Color(0xFFFDE3E3);
 
-  /// Survived outcome-cardbox background (design v3 §1.2) — a genuine 4th
-  /// light surface color, distinct from [paper]/[bg]/[paper2].
-  static const Color cardSurviveBg = Color(0xFFE3F7EE);
-
   /// Eternal outcome-cardbox's catalog-line + `stayalive.app` mark color
   /// (design v3 §1.2) — overrides the default tier color on the solid-gold
   /// fill (dark/low-saturation, matching the ARM plate's contrast rule).
   static const Color eternalNo = Color(0xFF8A5A00);
-
-  /// Eternal outcome-cardbox's flavor-line body text color (design v3 §1.2).
-  static const Color eternalWay = Color(0xFF6B4600);
-
-  /// Eternal outcome-cardbox's colored-name-span color (design v3 §1.2) —
-  /// the gold-bg analog of [coral] used on paper/mint cards.
-  static const Color eternalName = Color(0xFFB5500E);
 
   /// Ad-chrome palette (design v3 §1.4) — deliberately off-palette, used
   /// only by the two full ad screens (5.1/5.3) so they read as "someone
@@ -83,6 +72,49 @@ class AppColors {
   static const Color adInstallText = Color(0xFF0C2A1C);
   static const Color adFootText = Color(0xFF7C8894);
   static const Color adChipBg = Color(0x29FFFFFF); // rgba(255,255,255,0.16)
+
+  // --- Outcome story cards (design v1 §1.1) — the v4 redesign's new tokens.
+
+  /// Death's inverted-only chip fill: red @ 20% opacity painted over the
+  /// `ink` card background (design v1 §4.1) — a genuinely semi-transparent
+  /// color, not a pre-blended opaque one, so it stays correct if the
+  /// underlying card fill ever changes.
+  static const Color deathChipFillOnDark = Color(0x33F0483E);
+
+  /// Death's inverted chip text — also reused for the inverted card's
+  /// name-span (design v1 §4.1's contrast fix: plain `red` on near-black
+  /// `ink` measures ~3.5:1, legible but weak; this lighter red is the value
+  /// the mockup itself already defines for the chip, reused for the name).
+  static const Color deathChipTextOnDark = Color(0xFFFF8A82);
+
+  /// Survived card background (design v1 §1.1) — a genuine distinct light
+  /// surface from [paper]/[bg]/[paper2], its own exact mockup hex.
+  static const Color surviveCardBg = Color(0xFFEAFAF1);
+
+  /// Survived card's base ink/text color (design v1 §1.1).
+  static const Color surviveInk = Color(0xFF0C3B28);
+
+  /// Survived card's chip fill (design v1 §1.1/§4.2).
+  static const Color surviveChipBg = Color(0xFFD3F2E1);
+
+  /// Eternal card's base ink/text color AND chip fill (design v1 §1.1/§4.3 —
+  /// the chip is intentionally the same dark-brown as the base ink, an
+  /// inversion so the chip "pops dark" against the light gradient). Also
+  /// doubles as the Eternal loader's dot color (design v1 §1.4).
+  static const Color eternalInk = Color(0xFF5A3D00);
+
+  /// A distinct dark-amber — the Eternal wordmark's "Alive" accent only
+  /// (design v1 §1.1). Do NOT collapse with [eternalNo]/[eternalInk]: the
+  /// three Eternal browns still in play are subtly different and each has
+  /// exactly one role across the app.
+  static const Color eternalBrandAccent = Color(0xFFA8720C);
+
+  /// Eternal card background gradient stops (design v1 §1.2) — the current
+  /// shipped card's flat [gold] fill becomes a real two-stop `LinearGradient`
+  /// for the story-card redesign, a genuine `BoxDecoration.gradient` (not
+  /// `.color`) code-shape change.
+  static const Color eternalGradientStart = Color(0xFFFFF2D4);
+  static const Color eternalGradientEnd = Color(0xFFFFE0A8);
 }
 
 /// Fredoka text styles used across screens 1.1-1.5 (design spec v1 §1.2).

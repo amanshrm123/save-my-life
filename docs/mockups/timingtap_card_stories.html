@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Timing-Tap — Story Cards</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#1f2a2e;--paper:#fffdf7;--coral:#ff7a59;--coral-d:#e5613f;
+    --green:#2fbf71;--green-d:#1f9c58;--red:#f0483e;--red-d:#b8362e;
+    --gold:#ffc23c;--gold-d:#e5a516;--mute:#7b8a86;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:#eaeef1;color:var(--ink);font-family:'Fredoka',system-ui,sans-serif}
+  .wrap{max-width:1160px;margin:0 auto;padding:36px 24px 80px}
+  h1{font-size:24px;font-weight:700}
+  .intro{color:#48575f;font-size:14px;margin-top:8px;max-width:740px;line-height:1.55;font-weight:500}
+  .principle{background:#dde6ea;border-radius:12px;padding:12px 16px;margin-top:14px;font-size:13px;color:#2b3a41;font-weight:500;line-height:1.55;max-width:740px}
+  .principle b{font-weight:700}
+  .sectitle{font-size:18px;font-weight:700;margin:44px 0 3px;display:flex;align-items:center;gap:10px}
+  .bar{width:28px;height:5px;border-radius:99px}
+  .secsub{font-size:13px;color:#48575f;font-weight:500;margin-bottom:22px;max-width:740px;line-height:1.5}
+  .grid{display:flex;gap:26px;flex-wrap:wrap}
+  .col{display:flex;flex-direction:column;gap:10px}
+  .cap{font-size:12px;color:#48575f;text-align:center;max-width:250px;line-height:1.45;font-weight:500}
+  .cap b{color:var(--ink);font-weight:700}
+
+  /* Story card 9:16 */
+  .card{width:250px;height:445px;border-radius:26px;overflow:hidden;position:relative;
+    box-shadow:0 16px 36px rgba(31,42,46,.20);display:flex;flex-direction:column;
+    padding:26px 22px 22px}
+  .top{display:flex;align-items:center;justify-content:space-between}
+  .chip{font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;
+    padding:5px 12px;border-radius:99px}
+  .emoji{font-size:28px}
+  /* the story */
+  .story{flex:1;display:flex;flex-direction:column;justify-content:center;gap:12px}
+  .story .headline{font-size:27px;font-weight:700;line-height:1.12}
+  .story .tale{font-size:14px;font-weight:500;line-height:1.4;opacity:.85}
+  .story .nm{font-weight:700}
+  /* footer: tagline + brand + stores */
+  .foot{display:flex;flex-direction:column;align-items:center;gap:10px;text-align:center}
+  .tagline{font-size:12px;font-weight:600;line-height:1.35;opacity:.75;max-width:200px}
+  .brand{display:flex;align-items:center;gap:6px;font-size:19px;font-weight:700}
+  .brand .heart{font-size:15px}
+  .stores{display:flex;gap:6px}
+  .store{display:flex;align-items:center;gap:5px;border-radius:8px;padding:5px 9px;
+    font-size:8px;font-weight:600;line-height:1;border:1.5px solid currentColor}
+  .store b{font-size:10px;font-weight:700}
+  .store .si{font-size:12px}
+
+  /* palettes */
+  .death{background:var(--paper);color:var(--ink)}
+  .death .chip{background:#fde3e3;color:var(--red)}
+  .death .nm{color:var(--red)}
+  .death .brand span{color:var(--coral)}
+  .survive{background:#eafaf1;color:#0c3b28}
+  .survive .chip{background:#d3f2e1;color:var(--green-d)}
+  .survive .nm{color:var(--green-d)}
+  .survive .brand span{color:var(--green-d)}
+  .eternal{background:linear-gradient(160deg,#fff2d4,#ffe0a8);color:#5a3d00}
+  .eternal .chip{background:#5a3d00;color:var(--gold)}
+  .eternal .nm{color:#8a5a00}
+  .eternal .brand span{color:#a8720c}
+
+  .death.inv{background:var(--ink);color:var(--paper)}
+  .death.inv .chip{background:rgba(240,72,62,.2);color:#ff8a82}
+  .death.inv .brand span{color:var(--coral)}
+
+  /* loading */
+  @keyframes pulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.18);opacity:.7}}
+  @keyframes bounce{0%,100%{transform:translateY(0);opacity:.4}50%{transform:translateY(-6px);opacity:1}}
+  .ld{width:9px;height:9px;border-radius:50%;background:var(--red);display:inline-block;animation:bounce .9s ease-in-out infinite}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Timing-Tap — Story Cards</h1>
+  <p class="intro">Rebuilt to your brief: each card is a <b>random mini-story</b> (a death scene, a survival, a legend) — not a flat line — so it's genuinely reaction-worthy. A crisp <b>one-tap tagline</b>, the <b>Stay Alive</b> wordmark, and <b>App Store + Play Store badges</b> sit together at the bottom so every share is an install ad.</p>
+  <div class="principle"><b>Anatomy:</b> status chip + emoji up top — a punchy <b>headline</b> plus a one-sentence <b>story</b> in the middle — footer stack: tagline ("One tap saves you — or ends you") + "Stay Alive" wordmark + App Store & Play Store badges. Stories are drawn at random from each pool, so no two shares feel the same.</p>
+
+  <!-- LOADING -->
+  <div class="sectitle"><span class="bar" style="background:var(--coral)"></span> Loading state — before the card resolves</div>
+  <div class="secsub">The story content is fetched on request (random pull; post-launch via remote config), so there's a brief moment between the run ending and the card being ready. This fills it — a branded, on-theme loader so the screen never sits blank.</div>
+  <div class="grid">
+    <div class="col">
+      <div class="card death" style="align-items:center;justify-content:center">
+        <div style="display:flex;flex-direction:column;align-items:center;gap:18px;text-align:center">
+          <div style="font-size:44px;animation:pulse 1s ease-in-out infinite">💓</div>
+          <div style="font-size:19px;font-weight:700">Loading your life card…</div>
+          <div style="display:flex;gap:6px">
+            <span class="ld" style="animation-delay:0s"></span><span class="ld" style="animation-delay:.15s"></span><span class="ld" style="animation-delay:.3s"></span>
+          </div>
+          <div style="font-size:12px;font-weight:600;opacity:.6;max-width:180px">Every ending is one of a thousand. Let's see which one you got…</div>
+        </div>
+        <div class="foot" style="position:absolute;bottom:22px;left:0;right:0"><div class="brand" style="justify-content:center"><span class="heart">💓</span>Stay <span>Alive</span></div></div>
+      </div>
+      <div class="cap"><b>Loading — "Loading your life card…"</b> Pulsing heartbeat + dots while the story is fetched. Wordmark stays so even the wait is branded.</div>
+    </div>
+    <div class="col">
+      <div class="card death inv" style="align-items:center;justify-content:center">
+        <div style="display:flex;flex-direction:column;align-items:center;gap:18px;text-align:center">
+          <div style="font-size:44px;animation:pulse 1s ease-in-out infinite">💓</div>
+          <div style="font-size:19px;font-weight:700">Loading your life card…</div>
+          <div style="display:flex;gap:6px">
+            <span class="ld" style="background:var(--coral);animation-delay:0s"></span><span class="ld" style="background:var(--coral);animation-delay:.15s"></span><span class="ld" style="background:var(--coral);animation-delay:.3s"></span>
+          </div>
+          <div style="font-size:12px;font-weight:600;opacity:.55;max-width:180px">Every ending is one of a thousand. Let's see which one you got…</div>
+        </div>
+        <div class="foot" style="position:absolute;bottom:22px;left:0;right:0"><div class="brand" style="justify-content:center"><span class="heart">💓</span>Stay <span>Alive</span></div></div>
+      </div>
+      <div class="cap"><b>Loading · bold inverted.</b> Same loader, dark. Matches whichever card theme resolves next.</div>
+    </div>
+  </div>
+
+  <!-- DEATH -->
+  <div class="sectitle"><span class="bar" style="background:var(--red)"></span> Death — random death stories</div>
+  <div class="secsub">Each death is a tiny scene. Light or bold-inverted.</div>
+  <div class="grid">
+    <div class="col">
+      <div class="card death">
+        <div class="top"><span class="chip">💀 You died</span><span class="emoji">⏰️</span></div>
+        <div class="story"><div class="headline">One tap too late.</div><div class="tale"><span class="nm">Aman</span> had it. 15:98… 15:99… and froze. The clock ticked over. Gone.</div></div>
+        <div class="foot"><div class="tagline">One tap saves you — or ends you.</div><div class="brand"><span class="heart">💓</span>Stay <span>Alive</span></div>
+          <div class="stores"><span class="store"><span class="si"></span><span>Download on<br><b>App Store</b></span></span><span class="store"><span class="si">▶</span><span>Get it on<br><b>Google Play</b></span></span></div></div>
+      </div>
+      <div class="cap"><b>Death · light.</b> A mini-scene, not a one-liner. Tagline + wordmark + both store badges anchor the bottom.</div>
+    </div>
+    <div class="col">
+      <div class="card death inv">
+        <div class="top"><span class="chip">💀 You died</span><span class="emoji">😵</span></div>
+        <div class="story"><div class="headline">Blinked. Died.</div><div class="tale"><span class="nm">Aman</span> panicked at 3% life and slammed the tap a whole half-second early. Rookie.</div></div>
+        <div class="foot"><div class="tagline">One tap saves you — or ends you.</div><div class="brand"><span class="heart">💓</span>Stay <span>Alive</span></div>
+          <div class="stores"><span class="store"><span class="si"></span><span>Download on<br><b>App Store</b></span></span><span class="store"><span class="si">▶</span><span>Get it on<br><b>Google Play</b></span></span></div></div>
+      </div>
+      <div class="cap"><b>Death · bold inverted.</b> Same layout, dark — pops in a bright feed.</div>
+    </div>
+  </div>
+
+  <!-- SURVIVED -->
+  <div class="sectitle"><span class="bar" style="background:var(--green)"></span> Survived — random rescue stories</div>
+  <div class="secsub">The clutch save as a mini-story of relief.</div>
+  <div class="grid">
+    <div class="col">
+      <div class="card survive">
+        <div class="top"><span class="chip">🛟 Survived</span><span class="emoji">😮‍💨</span></div>
+        <div class="story"><div class="headline">Saved at 3%.</div><div class="tale"><span class="nm">Aman</span> was one heartbeat from gone — then landed the cleanest tap of their life. Back from the dead.</div></div>
+        <div class="foot"><div class="tagline">One tap saves you — or ends you.</div><div class="brand"><span class="heart">💓</span>Stay <span>Alive</span></div>
+          <div class="stores"><span class="store"><span class="si"></span><span>Download on<br><b>App Store</b></span></span><span class="store"><span class="si">▶</span><span>Get it on<br><b>Google Play</b></span></span></div></div>
+      </div>
+      <div class="cap"><b>Survived.</b> Same story anatomy, green. The relief moment as a tiny narrative.</div>
+    </div>
+  </div>
+
+  <!-- ETERNAL -->
+  <div class="sectitle"><span class="bar" style="background:var(--gold)"></span> Eternal Human — random legend stories</div>
+  <div class="secsub">The rare win as a legend worth bragging about.</div>
+  <div class="grid">
+    <div class="col">
+      <div class="card eternal">
+        <div class="top"><span class="chip">✨ Eternal · Top 0.3%</span></div>
+        <div class="story"><div class="headline">A living legend.</div><div class="tale"><span class="nm">Aman</span> hit three perfect taps from a cold start. No warm-up. No luck. Almost nobody ever does this.</div></div>
+        <div class="foot"><div class="tagline">One tap saves you — or ends you.</div><div class="brand"><span class="heart">💓</span>Stay <span>Alive</span></div>
+          <div class="stores"><span class="store"><span class="si"></span><span>Download on<br><b>App Store</b></span></span><span class="store"><span class="si">▶</span><span>Get it on<br><b>Google Play</b></span></span></div></div>
+      </div>
+      <div class="cap"><b>Eternal Human.</b> A legend story on gold — the proudest, most-shared card.</div>
+    </div>
+  </div>
+
+  <!-- FALLBACK -->
+  <div class="sectitle"><span class="bar" style="background:var(--mute)"></span> No-name fallback</div>
+  <div class="secsub">Story reworded without a name — reads clean.</div>
+  <div class="grid">
+    <div class="col">
+      <div class="card death">
+        <div class="top"><span class="chip">💀 You died</span><span class="emoji">⏰️</span></div>
+        <div class="story"><div class="headline">One tap too late.</div><div class="tale">Had it at 15:99… then froze. The clock ticked over. Gone in an instant.</div></div>
+        <div class="foot"><div class="tagline">One tap saves you — or ends you.</div><div class="brand"><span class="heart">💓</span>Stay <span>Alive</span></div>
+          <div class="stores"><span class="store"><span class="si"></span><span>Download on<br><b>App Store</b></span></span><span class="store"><span class="si">▶</span><span>Get it on<br><b>Google Play</b></span></span></div></div>
+      </div>
+      <div class="cap"><b>Fallback.</b> Name-agnostic story, same layout.</div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

@@ -34,7 +34,10 @@ void main() {
       await forceEndDeath(tester);
 
       expect(find.byType(OutcomeCardScreen), findsOneWidget);
-      expect(find.text('💀 You died'), findsOneWidget);
+      // `OutcomeChip` uppercases its label (design v1 §3/§5) — Death's copy
+      // itself is unchanged, but the rendered text is 'YOU DIED', not 'You
+      // died'.
+      expect(find.text('💀 YOU DIED'), findsOneWidget);
       expect(find.widgetWithText(StickerButton, 'Share →'), findsOneWidget);
       expect(service.totalRunsPlayed, 1);
       expect(service.totalDeaths, 1);
@@ -48,7 +51,9 @@ void main() {
       await forceEndSurvived(tester);
 
       expect(find.byType(OutcomeCardScreen), findsOneWidget);
-      expect(find.text('🛟 Survived'), findsOneWidget);
+      // 🆘, not 🛟 (founder-resolved tofu-rendering swap, design v1 §0/§4.2),
+      // and uppercased by `OutcomeChip`.
+      expect(find.text('🆘 SURVIVED'), findsOneWidget);
       expect(find.widgetWithText(StickerButton, 'Share →'), findsOneWidget);
       expect(service.totalRunsPlayed, 2);
       expect(service.totalDeaths, 1, reason: 'unaffected by the survived run');
@@ -62,7 +67,9 @@ void main() {
       await forceEndEternal(tester);
 
       expect(find.byType(OutcomeCardScreen), findsOneWidget);
-      expect(find.text('✨ Eternal Human'), findsOneWidget);
+      // Restored static flavor copy "✨ Eternal · Top 0.3%" (design v1
+      // §1.1/§4.3), uppercased by `OutcomeChip`.
+      expect(find.text('✨ ETERNAL · TOP 0.3%'), findsOneWidget);
       expect(
         find.widgetWithText(StickerButton, 'Flex it →'),
         findsOneWidget,
