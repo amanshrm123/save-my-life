@@ -92,6 +92,22 @@ class AndroidReminderService implements ReminderService {
     }
   }
 
+  /// Non-prompting permission check (architecture §11 risk 1's self-heal):
+  /// `areNotificationsEnabled()` reads current OS state without showing the
+  /// permission dialog, unlike [requestPermission].
+  @override
+  Future<bool> hasPermission() async {
+    try {
+      await _ensureInitialized();
+      final androidImpl = _plugin
+          .resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
+      final enabled = await androidImpl?.areNotificationsEnabled();
+      return enabled ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
   tz.TZDateTime _nextInstanceOfHour(int hour) {
     final now = tz.TZDateTime.now(tz.local);
     var scheduled = tz.TZDateTime(tz.local, now.year, now.month, now.day, hour);

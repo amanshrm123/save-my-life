@@ -16,4 +16,12 @@ abstract class ReminderService {
 
   /// Cancels the scheduled reminder, if any.
   Future<void> cancel();
+
+  /// Checks whether the OS notification permission is *currently* granted,
+  /// without prompting the user (unlike [requestPermission], which shows a
+  /// dialog). Used to self-correct if permission was revoked after the fact
+  /// (e.g. via OS Settings) — architecture v3 §8: denied permission must
+  /// never nag, so a stale schedule from before a revocation must not keep
+  /// firing and the toggle must not stay on.
+  Future<bool> hasPermission();
 }

@@ -26,59 +26,71 @@ class ResetConfirmDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Container(
-        constraints: const BoxConstraints(maxWidth: 320),
-        margin: const EdgeInsets.symmetric(horizontal: 32),
-        padding: const EdgeInsets.all(18),
-        decoration: BoxDecoration(
-          color: AppColors.bg,
-          borderRadius: BorderRadius.circular(22),
-          border: Border.all(color: AppColors.ink, width: 3),
-          boxShadow: const [BoxShadow(color: AppColors.ink, offset: Offset(0, 8), blurRadius: 0)],
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('⚠️', style: TextStyle(fontSize: 30)),
-            const SizedBox(height: 10),
-            const Text(
-              'Reset everything?',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontFamily: 'Fredoka',
-                fontSize: 16,
-                fontWeight: FontWeight.w700,
-                color: AppColors.ink,
+    // `showDialog`'s route doesn't itself provide a `Material` ancestor —
+    // only `AlertDialog`/`Dialog` do that, and this deliberately isn't one
+    // (a custom `bg`-card look, not Material's default shape). Without a
+    // `Material` ancestor, every `Text` below falls back to `MaterialApp`'s
+    // own `_errorTextStyle` for any style field it doesn't explicitly set
+    // (`TextStyle.merge` treats a null field as "inherit ambient") — which
+    // includes a yellow double-underline decoration meant to flag exactly
+    // this mistake. Same fix as `EditNameDialog`: supply a transparent
+    // `Material` so descendants resolve against a sane default instead.
+    return Material(
+      type: MaterialType.transparency,
+      child: Center(
+        child: Container(
+          constraints: const BoxConstraints(maxWidth: 320),
+          margin: const EdgeInsets.symmetric(horizontal: 32),
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            color: AppColors.bg,
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(color: AppColors.ink, width: 3),
+            boxShadow: const [BoxShadow(color: AppColors.ink, offset: Offset(0, 8), blurRadius: 0)],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('⚠️', style: TextStyle(fontSize: 30)),
+              const SizedBox(height: 10),
+              const Text(
+                'Reset everything?',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontFamily: 'Fredoka',
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.ink,
+                ),
               ),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              "Deletes your streak and stats. Can't be undone.",
-              textAlign: TextAlign.center,
-              style: AppTypography.body,
-            ),
-            const SizedBox(height: 16),
-            StickerButton(
-              label: 'Yes, reset',
-              fill: AppColors.red,
-              labelShadow: AppColors.redDark,
-              onPressed: () => Navigator.of(context).pop(true),
-            ),
-            const SizedBox(height: 10),
-            StickerButton(
-              label: 'Cancel',
-              fill: AppColors.paper,
-              labelShadow: AppColors.ink,
-              textColor: AppColors.ink,
-              showLabelTextShadow: false,
-              height: 40,
-              borderRadius: 14,
-              fontSize: 13,
-              restShadowOffset: 4,
-              onPressed: () => Navigator.of(context).pop(false),
-            ),
-          ],
+              const SizedBox(height: 8),
+              const Text(
+                "Deletes your streak and stats. Can't be undone.",
+                textAlign: TextAlign.center,
+                style: AppTypography.body,
+              ),
+              const SizedBox(height: 16),
+              StickerButton(
+                label: 'Yes, reset',
+                fill: AppColors.red,
+                labelShadow: AppColors.redDark,
+                onPressed: () => Navigator.of(context).pop(true),
+              ),
+              const SizedBox(height: 10),
+              StickerButton(
+                label: 'Cancel',
+                fill: AppColors.paper,
+                labelShadow: AppColors.ink,
+                textColor: AppColors.ink,
+                showLabelTextShadow: false,
+                height: 40,
+                borderRadius: 14,
+                fontSize: 13,
+                restShadowOffset: 4,
+                onPressed: () => Navigator.of(context).pop(false),
+              ),
+            ],
+          ),
         ),
       ),
     );

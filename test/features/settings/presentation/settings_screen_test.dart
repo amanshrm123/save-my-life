@@ -221,4 +221,7 @@ class _RecordingReminderService implements ReminderService {
   Future<void> cancel() async {
     onCancel();
   }
+
+  @override
+  Future<bool> hasPermission() async => true;
 }

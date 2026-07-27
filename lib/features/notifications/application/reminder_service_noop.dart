@@ -14,4 +14,7 @@ class NoopReminderService implements ReminderService {
 
   @override
   Future<void> cancel() async {}
+
+  @override
+  Future<bool> hasPermission() async => false;
 }

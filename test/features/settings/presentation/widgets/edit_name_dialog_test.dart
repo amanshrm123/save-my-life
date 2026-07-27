@@ -67,4 +67,43 @@ void main() {
 
     expect(find.byType(EditNameDialog), findsNothing, reason: 'a valid name saves and closes');
   });
+
+  // REGRESSION (QA bug 4, design v3 §6.3): the rejection-state headline and
+  // button label must switch the same way onboarding's `NameCaptureView`
+  // does ('Edit name' -> 'Pick another name', 'Save' -> 'Try again'), not
+  // just show the red border + error chip.
+  testWidgets('on rejection, the headline switches to "Pick another name" '
+      'and the button label switches to "Try again", matching onboarding\'s '
+      'rejection-state treatment', (tester) async {
+    await pumpDialog(tester);
+
+    expect(find.text('Edit name'), findsOneWidget);
+    expect(find.text('Save'), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField), 'fuck');
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Pick another name'), findsOneWidget);
+    expect(find.text('Edit name'), findsNothing);
+    expect(find.text('Try again'), findsOneWidget);
+    expect(find.text('Save'), findsNothing);
+  });
+
+  testWidgets('editing the text after a rejection reverts the headline/'
+      'button label back to normal, mirroring the border/chip reset',
+      (tester) async {
+    await pumpDialog(tester);
+
+    await tester.enterText(find.byType(TextField), 'fuck');
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+    expect(find.text('Pick another name'), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField), 'Aman');
+    await tester.pumpAndSettle();
+
+    expect(find.text('Edit name'), findsOneWidget);
+    expect(find.text('Save'), findsOneWidget);
+  });
 }

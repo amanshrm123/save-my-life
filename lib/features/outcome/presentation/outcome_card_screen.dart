@@ -175,6 +175,23 @@ class _OutcomeCardScreenState extends ConsumerState<OutcomeCardScreen>
                           onShare: _onShare,
                           onAgain: _onAgain,
                         ),
+                        // Architecture v3 §9's nav graph lists Home as a
+                        // sibling action to Share/Again, but the mockup's
+                        // actions row only shows two buttons (§2.1) — same
+                        // category of mockup gap as the missing Home
+                        // gear-icon/back-chevron (design v3 §5.1/§5.3).
+                        // Reuses onboarding's established plain-text-link
+                        // convention ("Skip for now") rather than bolting on
+                        // a third sticker button this tight card screen has
+                        // no room for.
+                        GestureDetector(
+                          onTap: _onHome,
+                          behavior: HitTestBehavior.opaque,
+                          child: const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 4),
+                            child: Text('Home', style: AppTypography.ghostLink),
+                          ),
+                        ),
                       ],
                     ),
                   ),

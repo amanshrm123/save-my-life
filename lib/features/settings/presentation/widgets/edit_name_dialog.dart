@@ -103,9 +103,9 @@ class _EditNameDialogState extends ConsumerState<EditNameDialog> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text(
-                'Edit name',
-                style: TextStyle(
+              Text(
+                _rejected ? 'Pick another name' : 'Edit name',
+                style: const TextStyle(
                   fontFamily: 'Fredoka',
                   fontSize: 16,
                   fontWeight: FontWeight.w700,
@@ -170,7 +170,7 @@ class _EditNameDialogState extends ConsumerState<EditNameDialog> {
               ],
               const SizedBox(height: 16),
               StickerButton(
-                label: 'Save',
+                label: _rejected ? 'Try again' : 'Save',
                 fill: AppColors.coral,
                 labelShadow: AppColors.coralDark,
                 enabled: !_submitting,
