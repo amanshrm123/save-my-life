@@ -66,7 +66,7 @@ void main() {
       expect(find.byType(HomeScreen), findsOneWidget);
       expect(statTileValue(tester, 'Deaths'), '1');
       expect(statTileValue(tester, 'Eternal'), '0');
-      expect(statTileValue(tester, 'Best\nlife'), '50%');
+      expect(statTileValue(tester, 'Survived'), '1');
       expect(
         find.text('1 day', findRichText: true),
         findsOneWidget,
@@ -89,7 +89,7 @@ void main() {
       // Home reflects the persisted totals, not a fresh/zeroed RAM state.
       expect(statTileValue(tester, 'Deaths'), '1');
       expect(statTileValue(tester, 'Eternal'), '0');
-      expect(statTileValue(tester, 'Best\nlife'), '50%');
+      expect(statTileValue(tester, 'Survived'), '1');
       expect(
         find.text('1 day', findRichText: true),
         findsOneWidget,

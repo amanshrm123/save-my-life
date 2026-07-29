@@ -263,6 +263,22 @@ class PreferencesService {
     }
   }
 
+  int get avatarId {
+    try {
+      return _prefs.getInt(kKeyAvatarId) ?? -1;
+    } catch (_) {
+      return -1;
+    }
+  }
+
+  Future<void> setAvatarId(int value) async {
+    try {
+      await _prefs.setInt(kKeyAvatarId, value);
+    } catch (_) {
+      // Swallow.
+    }
+  }
+
   /// Full teardown for Settings' "Reset progress" (architecture v3 §7/§11
   /// risk 6): clears every key this app has ever written. Defends against a
   /// failed clear the same way every other write here does — never throws

@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timing_tap/core/persistence/preferences_keys.dart';
 import 'package:timing_tap/core/persistence/preferences_service.dart';
 import 'package:timing_tap/core/routing/app_routes.dart';
+import 'package:timing_tap/features/avatar/state/avatar_providers.dart';
 import 'package:timing_tap/features/notifications/application/reminder_service.dart';
 import 'package:timing_tap/features/notifications/application/reminder_service_noop.dart';
 import 'package:timing_tap/features/notifications/state/reminder_providers.dart';
@@ -112,6 +113,25 @@ void main() {
     expect(freshProfile.name, '', reason: 'playerProfileProvider must be invalidated, not stale');
     expect(container.read(statsProvider).totalDeaths, 0, reason: 'statsProvider must be invalidated');
     expect(container.read(settingsProvider).sound, true, reason: 'settingsProvider must be invalidated');
+  });
+
+  testWidgets('REGRESSION: reset progress invalidates selectedAvatarProvider '
+      'too, so the avatar card falls back to the never-picked state instead '
+      'of leaving the previously-committed avatar stuck in RAM after prefs '
+      'have already been wiped', (tester) async {
+    final container = await pumpSettings(tester, initialPrefs: {kKeyAvatarId: 5});
+
+    // Warm the RAM cache with the pre-reset committed avatar.
+    expect(container.read(selectedAvatarProvider), 5);
+
+    await tapResetAndConfirm(tester);
+    await tester.pumpAndSettle();
+
+    expect(
+      container.read(selectedAvatarProvider),
+      -1,
+      reason: 'selectedAvatarProvider must be invalidated, not stale, after reset',
+    );
   });
 
   testWidgets('Reset progress cancels any scheduled reminder before clearing prefs', (tester) async {

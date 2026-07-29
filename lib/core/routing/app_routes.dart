@@ -13,4 +13,5 @@ class AppRoutes {
   static const String settings = '/settings';
   static const String stats = '/stats';
   static const String reminderOptIn = '/reminder-opt-in';
+  static const String avatarPicker = '/avatar-picker';
 }

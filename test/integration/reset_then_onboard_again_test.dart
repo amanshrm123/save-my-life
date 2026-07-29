@@ -39,7 +39,7 @@ void main() {
       // -- Sanity: the populated pre-reset state actually shows up.
       expect(statTileValue(tester, 'Deaths'), '2');
       expect(statTileValue(tester, 'Eternal'), '1');
-      expect(statTileValue(tester, 'Best\nlife'), '77%');
+      expect(statTileValue(tester, 'Survived'), '1');
 
       await tester.tap(find.byIcon(Icons.settings));
       await tester.pumpAndSettle();
@@ -79,7 +79,7 @@ void main() {
       // Home itself shows zeroed stats now, not the pre-reset numbers.
       expect(statTileValue(tester, 'Deaths'), '0');
       expect(statTileValue(tester, 'Eternal'), '0');
-      expect(statTileValue(tester, 'Best\nlife'), '0%');
+      expect(statTileValue(tester, 'Survived'), '0');
 
       // -- Regression guard: revisit Settings and confirm the Name row shows
       // the NEW name, not a stale closure/provider still holding "Aman".

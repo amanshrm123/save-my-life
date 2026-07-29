@@ -97,7 +97,7 @@ Future<void> tapPlayFromHome(WidgetTester tester) async {
 }
 
 /// Reads Home's `StatTile` value for the given [label] (e.g. `'Deaths'`,
-/// `'Eternal'`, `'Best\nlife'`) by inspecting the real widget property
+/// `'Eternal'`, `'Survived'`) by inspecting the real widget property
 /// directly, rather than the rendered `Semantics` label — this project's
 /// `StatTile` sets an explicit `Semantics(label: '$label $value')` without
 /// `mergeDescendants`, but the tile's own child `Text` widgets still

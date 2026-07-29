@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'core/routing/app_route_observer.dart';
 import 'core/routing/app_routes.dart';
 import 'core/theme/app_theme.dart';
+import 'features/avatar/presentation/avatar_picker_screen.dart';
 import 'features/home/presentation/home_screen.dart';
 import 'features/home/presentation/stats_screen.dart';
 import 'features/notifications/presentation/reminder_opt_in_screen.dart';
@@ -32,6 +33,7 @@ class App extends StatelessWidget {
         AppRoutes.settings: (context) => const SettingsScreen(),
         AppRoutes.stats: (context) => const StatsScreen(),
         AppRoutes.reminderOptIn: (context) => const ReminderOptInScreen(),
+        AppRoutes.avatarPicker: (context) => const AvatarPickerScreen(),
       },
     );
   }

@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/copy/app_copy.dart';
 import '../../../core/routing/app_route_observer.dart';
 import '../../../core/routing/app_routes.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/sticker_button.dart';
+import '../../avatar/presentation/widgets/home_avatar_card.dart';
+import '../../avatar/state/avatar_providers.dart';
 import '../../progression/domain/streak_calculator.dart';
 import '../../progression/state/stats_providers.dart';
 import '../../settings/state/settings_providers.dart';
@@ -31,6 +34,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
   bool _reminderPromptScheduled = false;
   ModalRoute<void>? _observedRoute;
+
+  /// Whether Home is the current, actually-visible route right now — threaded
+  /// down to `HomeAvatarCard`/`AvatarFigure` as `shouldAnimateFill` so the
+  /// life-meter fill only animates while genuinely on screen (see
+  /// `AvatarFigure`'s doc comment). Defaults true: the very first build after
+  /// `didChangeDependencies` subscribes is Home's own first appearance, which
+  /// should still get the normal fill-in entrance animation.
+  bool _isVisible = true;
 
   @override
   void initState() {
@@ -79,6 +90,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   @override
   void didPush() {
     // Home just became the current, visible route for the first time.
+    _setVisible(true);
     _onBecameVisible();
   }
 
@@ -86,6 +98,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   void didPopNext() {
     // A route pushed above Home (Outcome, Settings, Stats, reminder opt-in,
     // ...) was popped -- Home is the visible route again.
+    _setVisible(true);
     _onBecameVisible();
   }
 
@@ -100,6 +113,16 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
     if (ref.read(statsProvider).justAdvanced) {
       ref.read(statsProvider.notifier).clearJustAdvanced();
     }
+    _setVisible(false);
+  }
+
+  void _setVisible(bool visible) {
+    if (_isVisible == visible) return;
+    if (!mounted) {
+      _isVisible = visible;
+      return;
+    }
+    setState(() => _isVisible = visible);
   }
 
   void _onBecameVisible() {
@@ -137,6 +160,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
   void _goToPlay() => Navigator.of(context).pushNamed(AppRoutes.play);
   void _goToSettings() => Navigator.of(context).pushNamed(AppRoutes.settings);
   void _goToStats() => Navigator.of(context).pushNamed(AppRoutes.stats);
+  void _goToAvatarPicker() => Navigator.of(context).pushNamed(AppRoutes.avatarPicker);
 
   @override
   Widget build(BuildContext context) {
@@ -186,7 +210,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
               ),
               const SizedBox(height: 6),
               const Text(
-                'One tap. A thousand ways to go.',
+                kAppTagline,
                 style: AppTypography.body,
               ),
               const SizedBox(height: 14),
@@ -196,8 +220,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                 children: [
                   Expanded(
                     child: StatTile(
-                      value: '${snap.bestLifePercent}%',
-                      label: 'Best\nlife',
+                      value: '${snap.totalSurvives}',
+                      label: 'Survived',
+                      valueColor: AppColors.greenDark,
                       onTap: _goToStats,
                     ),
                   ),
@@ -215,12 +240,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
                     child: StatTile(
                       value: '${snap.totalDeaths}',
                       label: 'Deaths',
+                      valueColor: AppColors.redDark,
                       onTap: _goToStats,
                     ),
                   ),
                 ],
               ),
-              const Spacer(),
+              Expanded(
+                child: Center(
+                  child: HomeAvatarCard(
+                    avatarId: ref.watch(selectedAvatarProvider),
+                    bestLifePercent: snap.bestLifePercent,
+                    onTap: _goToAvatarPicker,
+                    shouldAnimateFill: _isVisible,
+                  ),
+                ),
+              ),
               StickerButton(
                 label: 'Play',
                 fill: AppColors.coral,
