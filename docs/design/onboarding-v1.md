@@ -120,8 +120,8 @@ All 5 screens share this shell: full-bleed background `#c8ecd9`, content wrapped
 │          Stay              │  32/700/0.9, ink
 │         Alive!             │  32/700/0.9, coral, hard text-shadow
 │                            │
-│  "One tap. A thousand      │  11.5/600, #4a5f5a, centered,
-│   ways to go."             │  max-width ~75-80% screen, capped ~320dp
+│  "One tap. From dust       │  11.5/600, #4a5f5a, centered,
+│   to forever."             │  max-width ~75-80% screen, capped ~320dp
 │                            │
 │    [====progress====]      │  110dp wide × 8dp tall pill track,
 │                            │  2dp ink border, 1.5dp inset padding,
@@ -129,7 +129,7 @@ All 5 screens share this shell: full-bleed background `#c8ecd9`, content wrapped
 └────────────────────────────┘
 ```
 
-Copy (verbatim): wordmark **"Stay"** / **"Alive!"**, tagline **"One tap. A thousand ways to go."**
+Copy (verbatim): wordmark **"Stay"** / **"Alive!"**, tagline **"One tap. From dust to forever."**
 
 States: **loading only** — there is no error/empty state here (a prefs-read failure defaults silently per architecture §8.7). Progress bar must actually animate 0%→100% over the splash's hold duration (see §4) — the mock's static 70% fill is a screenshot freeze-frame, not a target resting state.
 

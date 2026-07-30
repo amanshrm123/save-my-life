@@ -316,8 +316,8 @@ Shown in place of whichever ad screen would have appeared (interstitial or rewar
 ┌────────────────────────────┐
 │ Stay Alive                  │  26/700/.9 line-height, left-aligned,
 │                            │  "Alive" in coral — smaller & left-aligned
-│ One tap. A thousand ways    │  vs onboarding's centered 32/700 wordmark;
-│  to go.                      │  don't reuse the onboarding wordmark style verbatim
+│ One tap. From dust to        │  vs onboarding's centered 32/700 wordmark;
+│  forever.                     │  don't reuse the onboarding wordmark style verbatim
 │                            │  10/600 body-mute
 │ ╭──────────────────────╮   │
 │ │ DAILY STREAK           │   │  paper card: 2.5dp ink border, 16dp radius,

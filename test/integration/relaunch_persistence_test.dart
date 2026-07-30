@@ -1,8 +1,11 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:timing_tap/features/home/presentation/home_screen.dart';
 import 'package:timing_tap/features/onboarding/presentation/onboarding_screen.dart';
 import 'package:timing_tap/features/outcome/presentation/outcome_card_screen.dart';
+import 'package:timing_tap/features/play_loop/presentation/play_loop_screen.dart';
 import 'package:timing_tap/features/play_loop/presentation/widgets/run_chips.dart';
+import 'package:timing_tap/features/play_loop/state/play_loop_providers.dart';
 
 import 'support/app_harness.dart';
 
@@ -66,7 +69,7 @@ void main() {
       expect(find.byType(HomeScreen), findsOneWidget);
       expect(statTileValue(tester, 'Deaths'), '1');
       expect(statTileValue(tester, 'Eternal'), '0');
-      expect(statTileValue(tester, 'Best\nlife'), '50%');
+      expect(statTileValue(tester, 'Survived'), '1');
       expect(
         find.text('1 day', findRichText: true),
         findsOneWidget,
@@ -89,7 +92,7 @@ void main() {
       // Home reflects the persisted totals, not a fresh/zeroed RAM state.
       expect(statTileValue(tester, 'Deaths'), '1');
       expect(statTileValue(tester, 'Eternal'), '0');
-      expect(statTileValue(tester, 'Best\nlife'), '50%');
+      expect(statTileValue(tester, 'Survived'), '1');
       expect(
         find.text('1 day', findRichText: true),
         findsOneWidget,
@@ -106,7 +109,20 @@ void main() {
       await pumpPastCountdown(tester);
       final chips = tester.widget<RunChips>(find.byType(RunChips));
       expect(chips.runNumber, 3, reason: 'totalRunsPlayed persisted as 2 -> this fresh run is #3');
-      expect(chips.deaths, 1, reason: 'totalDeaths persisted as 1 carries into the fresh run seed');
+
+      // The Deaths chip is gone from the HUD entirely (design spec v2 §1.1)
+      // — `RunChips` no longer carries a `deaths` property to assert on, so
+      // this reads the underlying (untouched) `RunState.deaths` straight
+      // from the controller instead.
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(PlayLoopScreen)),
+      );
+      expect(
+        container.read(runControllerProvider).deaths,
+        1,
+        reason: 'totalDeaths persisted as 1 carries into the fresh run seed, '
+            'even though the HUD no longer renders a Deaths chip',
+      );
     },
   );
 }

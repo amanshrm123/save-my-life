@@ -54,3 +54,8 @@ const String kKeyReminderEnabled = 'reminder_enabled';
 /// Whether the once-only 8.4 reminder opt-in prompt has already been shown.
 /// bool, default false.
 const String kKeyReminderOptInShown = 'reminder_opt_in_shown';
+
+/// The player's chosen avatar id (`AvatarCatalog`, 0-11). int, default -1
+/// (never picked — Home shows the "Pick your look" hint pill until the
+/// first commit from `/avatar-picker`).
+const String kKeyAvatarId = 'avatar_id';

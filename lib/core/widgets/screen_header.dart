@@ -26,13 +26,17 @@ class ScreenHeader extends StatelessWidget {
           const SizedBox(width: 2),
           Text(emoji, style: const TextStyle(fontSize: 18)),
           const SizedBox(width: 8),
-          Text(
-            title,
-            style: const TextStyle(
-              fontFamily: 'Fredoka',
-              fontSize: 16,
-              fontWeight: FontWeight.w700,
-              color: AppColors.ink,
+          Expanded(
+            child: Text(
+              title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontFamily: 'Fredoka',
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+                color: AppColors.ink,
+              ),
             ),
           ),
         ],

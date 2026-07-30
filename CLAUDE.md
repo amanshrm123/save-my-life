@@ -15,7 +15,14 @@ for every non-trivial change:
 4. **Tester scope**: test only the part implemented in the current request,
    not the entire flow end-to-end every time.
 5. **Testing requirement**: add unit tests and integration tests for every
-   logical change, and run the full test suite after making it.
+   logical change, and run the tests covering the changed area (new tests plus
+   any existing tests that touch the same files/screens/providers). Do **not**
+   run the full `flutter test` suite or chase unrelated pre-existing failures
+   as part of closing out a request — scope test execution the same way rule 4
+   scopes the tester agent's manual QA. If a change's blast radius is genuinely
+   unclear, err toward running more of the suite rather than less, but the
+   default for a normal scoped feature/fix is targeted test files, not the
+   whole suite.
 6. **Frontend/UX verification**: for any frontend/game-UI change, the
    game-ux-designer must verify the built screen matches the mockup exactly
    before it's considered done.

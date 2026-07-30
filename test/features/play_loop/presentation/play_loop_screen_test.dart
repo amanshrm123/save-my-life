@@ -4,12 +4,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timing_tap/core/persistence/preferences_service.dart';
 import 'package:timing_tap/features/onboarding/state/onboarding_providers.dart';
+import 'package:timing_tap/features/play_loop/domain/run_config.dart';
 import 'package:timing_tap/features/play_loop/domain/run_state.dart';
 import 'package:timing_tap/features/play_loop/presentation/countdown_view.dart';
 import 'package:timing_tap/features/play_loop/presentation/play_loop_screen.dart';
 import 'package:timing_tap/features/play_loop/presentation/widgets/pause_overlay.dart';
-import 'package:timing_tap/features/play_loop/presentation/widgets/stop_button.dart';
-import 'package:timing_tap/features/play_loop/presentation/widgets/target_arm_button.dart';
+import 'package:timing_tap/features/play_loop/presentation/widgets/primary_action_button.dart';
 import 'package:timing_tap/features/play_loop/state/play_loop_providers.dart';
 
 /// Widget-level coverage for `PlayLoopScreen` (architecture v2 §7/§9). The
@@ -48,8 +48,8 @@ void main() {
   }
 
   testWidgets(
-    'countdown auto-arms into the gold "STOP AT" plate; tapping it starts '
-    'running and enables the STOP button',
+    'countdown auto-arms into the merged button\'s gold "armStart" look; '
+    'tapping it starts running and reskins it in place to "stopNormal"',
     (tester) async {
       final svc = await service();
       await tester.pumpWidget(app(svc));
@@ -60,19 +60,26 @@ void main() {
       await pumpPastCountdown(tester);
 
       expect(find.byType(CountdownView), findsNothing);
-      expect(find.byType(TargetArmButton), findsOneWidget);
+      expect(find.byType(PrimaryActionButton), findsOneWidget);
       expect(readState(tester).phase, RunPhase.armed);
 
-      final stopBefore = tester.widget<StopButton>(find.byType(StopButton));
-      expect(stopBefore.enabled, isFalse, reason: 'STOP is dimmed while armed');
+      final buttonBefore = tester.widget<PrimaryActionButton>(find.byType(PrimaryActionButton));
+      expect(
+        buttonBefore.look,
+        PrimaryActionLook.armStart,
+        reason: 'gold "STOP AT" look while armed',
+      );
 
-      await tester.tap(find.byType(TargetArmButton));
+      await tester.tap(find.byType(PrimaryActionButton));
       await tester.pump();
 
       expect(readState(tester).phase, RunPhase.running);
-      expect(find.byType(TargetArmButton), findsNothing);
-      final stopAfter = tester.widget<StopButton>(find.byType(StopButton));
-      expect(stopAfter.enabled, isTrue, reason: 'STOP goes live once running');
+      final buttonAfter = tester.widget<PrimaryActionButton>(find.byType(PrimaryActionButton));
+      expect(
+        buttonAfter.look,
+        PrimaryActionLook.stopNormal,
+        reason: 'the SAME widget reskins to coral "STOP" once running',
+      );
     },
   );
 
@@ -83,7 +90,7 @@ void main() {
       final svc = await service();
       await tester.pumpWidget(app(svc));
       await pumpPastCountdown(tester);
-      await tester.tap(find.byType(TargetArmButton));
+      await tester.tap(find.byType(PrimaryActionButton));
       await tester.pump();
       expect(readState(tester).phase, RunPhase.running);
 
@@ -104,7 +111,7 @@ void main() {
       final svc = await service();
       await tester.pumpWidget(app(svc));
       await pumpPastCountdown(tester);
-      await tester.tap(find.byType(TargetArmButton));
+      await tester.tap(find.byType(PrimaryActionButton));
       await tester.pump();
 
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
@@ -189,6 +196,13 @@ void main() {
       );
       final controller = container.read(runControllerProvider.notifier);
       controller.startRunning();
+      // Burns real wall-clock time past `RunConfig.minStopElapsedMs` so this
+      // deliberately-forced stop is never itself mistaken by the
+      // fast-double-tap guard for a suppressed accidental one — the guard
+      // reads the real `_clock.elapsed` (never faked, architecture v2 G1),
+      // which a `tester.pump()` duration does not advance.
+      final spin = Stopwatch()..start();
+      while (spin.elapsedMilliseconds <= RunConfig.defaults.minStopElapsedMs) {}
       final base = controller.liveElapsed;
       controller.state = controller.state.copyWith(target: base + offset);
       controller.registerStop();

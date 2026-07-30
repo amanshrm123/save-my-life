@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/copy/app_copy.dart';
 import '../../../core/routing/app_page_transitions.dart';
 import '../../../core/routing/app_routes.dart';
 import '../../../core/theme/app_theme.dart';
@@ -127,7 +128,7 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
                         .toDouble(),
                   ),
                   child: const Text(
-                    'One tap. A thousand ways to go.',
+                    kAppTagline,
                     textAlign: TextAlign.center,
                     style: AppTypography.body,
                   ),

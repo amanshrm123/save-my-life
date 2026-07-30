@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../core/routing/app_routes.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/screen_header.dart';
+import '../../avatar/state/avatar_providers.dart';
 import '../../notifications/state/reminder_providers.dart';
 import '../../onboarding/state/onboarding_providers.dart';
 import '../../progression/state/stats_providers.dart';
@@ -88,6 +89,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     ref.invalidate(playerProfileProvider);
     ref.invalidate(statsProvider);
     ref.invalidate(settingsProvider);
+    ref.invalidate(selectedAvatarProvider);
 
     Navigator.of(context).pushNamedAndRemoveUntil(AppRoutes.splash, (route) => false);
   }

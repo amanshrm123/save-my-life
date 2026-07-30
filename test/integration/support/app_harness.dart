@@ -10,10 +10,10 @@ import 'package:timing_tap/features/notifications/application/reminder_service_n
 import 'package:timing_tap/features/notifications/state/reminder_providers.dart';
 import 'package:timing_tap/features/home/presentation/widgets/stat_tile.dart';
 import 'package:timing_tap/features/onboarding/state/onboarding_providers.dart';
+import 'package:timing_tap/features/play_loop/domain/run_config.dart';
 import 'package:timing_tap/features/play_loop/domain/run_state.dart';
 import 'package:timing_tap/features/play_loop/presentation/play_loop_screen.dart';
-import 'package:timing_tap/features/play_loop/presentation/widgets/stop_button.dart';
-import 'package:timing_tap/features/play_loop/presentation/widgets/target_arm_button.dart';
+import 'package:timing_tap/features/play_loop/presentation/widgets/primary_action_button.dart';
 import 'package:timing_tap/features/play_loop/state/play_loop_providers.dart';
 
 /// Shared plumbing for the cross-feature integration tests (see
@@ -97,7 +97,7 @@ Future<void> tapPlayFromHome(WidgetTester tester) async {
 }
 
 /// Reads Home's `StatTile` value for the given [label] (e.g. `'Deaths'`,
-/// `'Eternal'`, `'Best\nlife'`) by inspecting the real widget property
+/// `'Eternal'`, `'Survived'`) by inspecting the real widget property
 /// directly, rather than the rendered `Semantics` label — this project's
 /// `StatTile` sets an explicit `Semantics(label: '$label $value')` without
 /// `mergeDescendants`, but the tile's own child `Text` widgets still
@@ -129,14 +129,28 @@ Future<void> pumpPastCountdown(WidgetTester tester) async {
   await tester.pumpAndSettle();
 }
 
+/// Burns real wall-clock time so `GameClock`'s underlying real `Stopwatch`
+/// (never faked — architecture v2 G1) reads meaningfully past
+/// `RunConfig.minStopElapsedMs` — a `tester.pump(duration)` does not advance
+/// it — before a deliberately-forced "genuine" stop, so the fast-double-tap
+/// guard can never mistake an intentional forced stop for a suppressed one.
+/// Shared across `test/integration/*_test.dart` (not just this file), for
+/// any real-tap sequence that wants its stop tap to actually register.
+void burnPastMinStopElapsed() {
+  final spin = Stopwatch()..start();
+  while (spin.elapsedMilliseconds <= RunConfig.defaults.minStopElapsedMs) {}
+}
+
 /// Forces a stop whose `|error|` is deterministically `offset` from the
 /// controller's current live elapsed time, via the REAL `registerStop()` —
 /// the sanctioned `@visibleForTesting` `state`-setter technique this
 /// project's `run_controller_test.dart`/`play_loop_screen_test.dart` already
 /// use. Reserved for whenever a precise tier (Perfect/Hit) is required,
 /// since real wall-clock tap-to-tap timing cannot reliably land inside a
-/// 60ms/180ms band.
+/// 60ms/180ms band. Assumes the run just went live (`startRunning()` called
+/// immediately before this).
 StopTier forceStop(RunController c, Duration offset) {
+  burnPastMinStopElapsed();
   final base = c.liveElapsed;
   c.state = c.state.copyWith(target: base + offset);
   c.registerStop();
@@ -172,9 +186,18 @@ Future<void> tapThroughToQuickDeath(WidgetTester tester) async {
   c.state = c.state.copyWith(lifePercent: 5);
   await tester.pump();
 
-  await tester.tap(find.byType(TargetArmButton));
+  // Both the start tap and the stop tap now land on the same merged
+  // `PrimaryActionButton` (design spec v2 §3) — arm-then-stop is two taps
+  // on the same widget, one before and one after it reskins in place.
+  await tester.tap(find.byType(PrimaryActionButton));
   await tester.pump();
-  await tester.tap(find.byType(StopButton));
+  // Burn real wall-clock time past `RunConfig.minStopElapsedMs` between the
+  // start tap and the stop tap: unlike a genuine fast double-tap, this
+  // helper wants the stop tap to actually register, not be suppressed by
+  // the fast-double-tap guard (`tester.pump(duration)` does not advance the
+  // real `Stopwatch` `GameClock` reads).
+  burnPastMinStopElapsed();
+  await tester.tap(find.byType(PrimaryActionButton));
   await tester.pump();
 
   await flushDwell(tester);
