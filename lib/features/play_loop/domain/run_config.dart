@@ -17,6 +17,8 @@ class RunConfig {
     this.countdownSteps = 3,
     this.countdownStepMs = 700,
     this.flashDwellMs = 600,
+    this.autoMissGraceMs = 1000,
+    this.minStopElapsedMs = 200,
   });
 
   final int startLifePercent;
@@ -49,6 +51,29 @@ class RunConfig {
 
   /// How long the "Stopped" flash/tier dwell holds before advancing.
   final int flashDwellMs;
+
+  /// Grace period (design spec v2 §4), added past the point a Miss becomes
+  /// numerically unavoidable (`target + hitBandMs`), before the run
+  /// auto-resolves the attempt as a Miss on the player's behalf — a stalled
+  /// finger/dropped tap can no longer strand an attempt forever.
+  final int autoMissGraceMs;
+
+  /// Merged-button double-tap guard: a stop resolves only once
+  /// `_clock.elapsed` (the same capture [handlePrimaryPointerDown]/
+  /// [registerStop] already read as their literal first statement, per
+  /// architecture G2) is at least this many ms. Below it, the tap is treated
+  /// as a no-op instead of a stop — never consuming `_stopConsumed`,
+  /// mutating phase, or advancing `attemptIndex`.
+  ///
+  /// Guards against a fast double-tap landing on the merged button: tap once
+  /// to start a run, then tap again almost immediately (finger already on
+  /// the same widget, no longer needing to hunt for a separate STOP
+  /// button) — with no guard this always resolves as a stop at ~0-20ms
+  /// elapsed, which is always a `StopTier.miss` since `targetMinMs` is
+  /// 2000ms (an instant death if it happens during `finalBandRunning`).
+  /// Comfortably below `targetMinMs` (2000ms) so a legitimate stop, however
+  /// fast, can never be suppressed by this guard.
+  final int minStopElapsedMs;
 
   static const RunConfig defaults = RunConfig();
 }

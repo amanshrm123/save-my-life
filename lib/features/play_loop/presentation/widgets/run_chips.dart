@@ -2,30 +2,22 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_theme.dart';
 
-/// Persistent gameplay topbar: Run chip + Deaths chip + pause icon button,
-/// all three, present throughout Armed/Running/Stopped/FinalBand (design
-/// spec v1 §3.6 — reconciles the mock's two inconsistent topbar frames via
-/// architecture's own file-layout hint that this is a single combined
-/// widget). Chips never reskin, even in the final band (§2.7 table).
+/// The Run chip + pause icon button (design spec v2 §1.2/§1.3, §2.1's
+/// "revision summary") — row a of the new combined `PlayHudBar`. The Deaths
+/// chip is gone entirely (design spec v2 §1.1: a deletion, not a swap — no
+/// replacement counter). `RunState.deaths` itself is untouched; it's simply
+/// no longer rendered here.
 class RunChips extends StatelessWidget {
-  const RunChips({
-    super.key,
-    required this.runNumber,
-    required this.deaths,
-    required this.onPause,
-  });
+  const RunChips({super.key, required this.runNumber, required this.onPause});
 
   final int runNumber;
-  final int deaths;
   final VoidCallback onPause;
 
   @override
   Widget build(BuildContext context) {
     return Row(
       children: [
-        _Chip(label: 'Run', value: '$runNumber'),
-        const SizedBox(width: 8),
-        _Chip(label: 'Deaths', value: '$deaths'),
+        _Chip(label: 'Run #', value: '$runNumber'),
         const Spacer(),
         _PauseIconButton(onPressed: onPause),
       ],
@@ -36,6 +28,8 @@ class RunChips extends StatelessWidget {
 class _Chip extends StatelessWidget {
   const _Chip({required this.label, required this.value});
 
+  /// The label span, rendered verbatim (design spec v2 §1.3: "Run #", with
+  /// the `#` immediately followed by the bare number span, no extra space).
   final String label;
   final String value;
 
@@ -58,7 +52,7 @@ class _Chip extends StatelessWidget {
             height: 1,
           ),
           children: [
-            TextSpan(text: '$label '),
+            TextSpan(text: label),
             TextSpan(text: value, style: const TextStyle(fontWeight: FontWeight.w700)),
           ],
         ),

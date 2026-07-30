@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -7,6 +8,7 @@ import 'package:timing_tap/core/persistence/preferences_keys.dart';
 import 'package:timing_tap/core/persistence/preferences_service.dart';
 import 'package:timing_tap/features/onboarding/state/onboarding_providers.dart'
     show preferencesServiceProvider, playerProfileProvider;
+import 'package:timing_tap/features/play_loop/domain/run_config.dart';
 import 'package:timing_tap/features/play_loop/domain/run_state.dart';
 import 'package:timing_tap/features/play_loop/domain/run_summary.dart';
 import 'package:timing_tap/features/play_loop/state/play_loop_providers.dart';
@@ -57,10 +59,21 @@ void main() {
     return container;
   }
 
+  /// Burns real wall-clock time so `GameClock`'s underlying real `Stopwatch`
+  /// (never faked — architecture v2 G1) reads meaningfully past
+  /// `RunConfig.minStopElapsedMs` before a deliberately-forced "genuine"
+  /// stop, so the fast-double-tap guard (fix v2 §9 risk 11) can never
+  /// mistake an intentional test stop for a suppressed one.
+  void burnPastMinStopElapsed() {
+    final spin = Stopwatch()..start();
+    while (spin.elapsedMilliseconds <= RunConfig.defaults.minStopElapsedMs) {}
+  }
+
   /// Starts running (must already be `armed`/`finalBandArmed`) then forces a
   /// stop whose `|error|` is deterministically `offset` (see file doc).
   StopTier forceStop(RunController c, Duration offset) {
     c.startRunning();
+    burnPastMinStopElapsed();
     final base = c.liveElapsed;
     c.state = c.state.copyWith(target: base + offset);
     c.registerStop();
@@ -342,6 +355,7 @@ void main() {
       final c = container.read(runControllerProvider.notifier);
       c.arm();
       c.startRunning();
+      burnPastMinStopElapsed();
       final base = c.liveElapsed;
       c.state = c.state.copyWith(target: base); // -> perfect on first stop
 
@@ -351,6 +365,387 @@ void main() {
 
       expect(c.state.lastTier, StopTier.perfect);
       expect(c.state.attemptIndex, 1, reason: 'only the first stop may count');
+    });
+  });
+
+  group('handlePrimaryPointerDown() (design spec v2 §3 — the merged bottom '
+      'button)', () {
+    test('reads _clock.elapsed as its literal first statement, before the '
+        'switch on state.phase — i.e. merging the old ARM/STOP taps into one '
+        'entry point preserves architecture G2', () {
+      final source = File(
+        'lib/features/play_loop/state/play_loop_providers.dart',
+      ).readAsStringSync();
+
+      const signature = 'void handlePrimaryPointerDown() {';
+      final methodStart = source.indexOf(signature);
+      expect(
+        methodStart,
+        isNot(-1),
+        reason: 'handlePrimaryPointerDown() must exist verbatim in '
+            'play_loop_providers.dart',
+      );
+
+      final bodyStart = methodStart + signature.length;
+      final methodEnd = source.indexOf('void registerStop() {', methodStart);
+      final body = source.substring(bodyStart, methodEnd).trimLeft();
+
+      expect(
+        body.startsWith('final captured = _clock.elapsed;'),
+        isTrue,
+        reason: 'the very first statement in the method body must be the '
+            'direct elapsed capture — before any guard, branch, provider '
+            'read, or state mutation, and before the switch on state.phase',
+      );
+    });
+
+    test('from armed, dispatches to a start exactly like startRunning()', () async {
+      final container = await buildContainer();
+      final c = container.read(runControllerProvider.notifier);
+      c.arm();
+
+      c.handlePrimaryPointerDown();
+
+      expect(c.state.phase, RunPhase.running);
+    });
+
+    test('from finalBandArmed, dispatches to a start into finalBandRunning', () async {
+      final container = await buildContainer();
+      final c = container.read(runControllerProvider.notifier);
+      c.state = c.state.copyWith(phase: RunPhase.finalBandArmed, lifePercent: 4);
+
+      c.handlePrimaryPointerDown();
+
+      expect(c.state.phase, RunPhase.finalBandRunning);
+    });
+
+    test('from running, dispatches to a stop exactly like registerStop()', () async {
+      final container = await buildContainer();
+      final c = container.read(runControllerProvider.notifier);
+      c.arm();
+      c.startRunning();
+      burnPastMinStopElapsed();
+      final base = c.liveElapsed;
+      c.state = c.state.copyWith(target: base); // -> perfect
+
+      c.handlePrimaryPointerDown();
+
+      expect(c.state.phase, RunPhase.stopped);
+      expect(c.state.lastTier, StopTier.perfect);
+      expect(c.state.lastStopWasFinalBand, isFalse);
+    });
+
+    test('from finalBandRunning, dispatches to the sudden-death stop path', () async {
+      final container = await buildContainer();
+      final c = container.read(runControllerProvider.notifier);
+      c.state = c.state.copyWith(phase: RunPhase.finalBandArmed, lifePercent: 4);
+      c.startRunning();
+      burnPastMinStopElapsed();
+      final base = c.liveElapsed;
+      c.state = c.state.copyWith(target: base + missOffset); // -> miss
+
+      c.handlePrimaryPointerDown();
+
+      expect(c.state.phase, RunPhase.stopped);
+      expect(c.state.lastTier, StopTier.miss);
+      expect(c.state.lastStopWasFinalBand, isTrue);
+    });
+
+    test('is a no-op from countdown/stopped/paused/ended — nothing to start '
+        'or stop from any of those phases', () async {
+      final container = await buildContainer();
+      final c = container.read(runControllerProvider.notifier);
+
+      c.handlePrimaryPointerDown(); // still countdown
+      expect(c.state.phase, RunPhase.countdown);
+
+      c.arm();
+      forceStop(c, perfectOffset); // -> stopped
+      final beforeStopped = c.state;
+      c.handlePrimaryPointerDown();
+      expect(c.state, same(beforeStopped));
+
+      c.state = c.state.copyWith(phase: RunPhase.paused, phaseBeforePause: RunPhase.armed);
+      final beforePaused = c.state;
+      c.handlePrimaryPointerDown();
+      expect(c.state, same(beforePaused));
+
+      c.state = c.state.copyWith(phase: RunPhase.ended, outcome: RunOutcome.death);
+      final beforeEnded = c.state;
+      c.handlePrimaryPointerDown();
+      expect(c.state, same(beforeEnded));
+    });
+
+    test('a rapid double handlePrimaryPointerDown() while running cannot '
+        'corrupt the recorded tier/life, mirroring registerStop()\'s own '
+        'double-tap invariant', () async {
+      final container = await buildContainer();
+      final c = container.read(runControllerProvider.notifier);
+      c.arm();
+      c.startRunning();
+      burnPastMinStopElapsed();
+      final base = c.liveElapsed;
+      c.state = c.state.copyWith(target: base); // -> perfect on first stop
+
+      c.handlePrimaryPointerDown();
+      c.handlePrimaryPointerDown();
+      c.handlePrimaryPointerDown();
+
+      expect(c.state.lastTier, StopTier.perfect);
+      expect(c.state.attemptIndex, 1, reason: 'only the first stop may count');
+    });
+  });
+
+  group('fast-double-tap stop-suppression guard (RunConfig.minStopElapsedMs) '
+      '— the merged button lets a second tap land on the exact same widget '
+      'almost instantly after the start tap; below the threshold this must '
+      'be a full no-op rather than an unearned Miss/death', () {
+    test('a stop attempted well below minStopElapsedMs is a full no-op: '
+        'life, attemptIndex, and lastTier are all unchanged and the run '
+        'keeps running', () async {
+      final container = await buildContainer();
+      final c = container.read(runControllerProvider.notifier);
+      c.arm();
+      c.startRunning();
+
+      // Fired immediately (no burned delay at all) — simulating a fast
+      // double-tap landing on the same merged button right after the start
+      // tap, well under `minStopElapsedMs` (200ms default).
+      c.handlePrimaryPointerDown();
+
+      expect(
+        c.state.phase,
+        RunPhase.running,
+        reason: 'a too-fast stop must be fully suppressed, not resolved — '
+            'the run must still be live afterward',
+      );
+      expect(c.state.lifePercent, 50, reason: 'no life delta for a suppressed stop');
+      expect(
+        c.state.attemptIndex,
+        0,
+        reason: 'a suppressed stop must not count as an attempt',
+      );
+      expect(c.state.lastTier, isNull);
+    });
+
+    test('a too-fast stop during finalBandRunning does not end the run — '
+        'unguarded, this is exactly the reachable instant-death regression '
+        'the guard exists to close', () async {
+      final container = await buildContainer();
+      final c = container.read(runControllerProvider.notifier);
+      c.state = c.state.copyWith(phase: RunPhase.finalBandArmed, lifePercent: 4);
+      c.startRunning();
+
+      c.handlePrimaryPointerDown(); // fired immediately, well under the threshold
+
+      expect(c.state.phase, RunPhase.finalBandRunning);
+      expect(c.state.outcome, isNull, reason: 'must not have ended the run as a death');
+      expect(c.state.lifePercent, 4);
+    });
+
+    test('a stop at/just past minStopElapsedMs still resolves normally '
+        '(boundary case: the guard must never suppress a genuine stop)', () async {
+      final container = await buildContainer();
+      final c = container.read(runControllerProvider.notifier);
+      c.arm();
+      c.startRunning();
+      burnPastMinStopElapsed(); // real elapsed is now just past the threshold
+      final base = c.liveElapsed;
+      c.state = c.state.copyWith(target: base); // -> perfect
+
+      c.handlePrimaryPointerDown();
+
+      expect(
+        c.state.phase,
+        RunPhase.stopped,
+        reason: 'a stop at/just past the threshold must be accepted normally',
+      );
+      expect(c.state.lastTier, StopTier.perfect);
+      expect(c.state.attemptIndex, 1);
+    });
+  });
+
+  group('auto-miss timeout (design spec v2 §4, RunConfig.autoMissGraceMs) — '
+      'a stalled/never-arriving tap can no longer strand an attempt forever', () {
+    int deadlineMsFor(RunController c) =>
+        c.state.target.inMilliseconds +
+        RunConfig.defaults.hitBandMs +
+        RunConfig.defaults.autoMissGraceMs;
+
+    test('fires as a genuine Miss ~(target + hitBandMs + graceMs) after the '
+        'attempt goes live in `running`, with no manual stop at all', () async {
+      final container = await buildContainer();
+      final c = container.read(runControllerProvider.notifier);
+      c.arm();
+
+      fakeAsync((async) {
+        c.startRunning();
+        expect(c.state.phase, RunPhase.running);
+        // The auto-miss timer's own eventual `registerStop()` fire reads the
+        // REAL `_clock.elapsed` (never faked — architecture v2 G1), so it
+        // must genuinely be past `minStopElapsedMs` by the time it fires,
+        // same as any other stop.
+        burnPastMinStopElapsed();
+        final deadlineMs = deadlineMsFor(c);
+
+        async.elapse(Duration(milliseconds: deadlineMs - 1));
+        expect(
+          c.state.phase,
+          RunPhase.running,
+          reason: 'the auto-miss timer must not fire even 1ms early',
+        );
+
+        async.elapse(const Duration(milliseconds: 2));
+        expect(c.state.phase, RunPhase.stopped);
+        expect(c.state.lastTier, StopTier.miss);
+        expect(c.state.lastStopWasFinalBand, isFalse);
+      });
+    });
+
+    test('fires as a genuine Miss in finalBandRunning too, ending the run as '
+        'death via the sudden-death path once advanceAfterDwell() runs', () async {
+      final container = await buildContainer();
+      final c = container.read(runControllerProvider.notifier);
+      c.state = c.state.copyWith(phase: RunPhase.finalBandArmed, lifePercent: 4);
+
+      fakeAsync((async) {
+        c.startRunning();
+        expect(c.state.phase, RunPhase.finalBandRunning);
+        burnPastMinStopElapsed();
+        final deadlineMs = deadlineMsFor(c);
+
+        async.elapse(Duration(milliseconds: deadlineMs + 5));
+
+        expect(c.state.phase, RunPhase.stopped);
+        expect(c.state.lastTier, StopTier.miss);
+        expect(c.state.lastStopWasFinalBand, isTrue);
+
+        c.advanceAfterDwell();
+        expect(c.state.phase, RunPhase.ended);
+        expect(c.state.outcome, RunOutcome.death);
+      });
+    });
+
+    test('is cancelled by a manual stop — no pending timer survives, and '
+        'letting fake time run past the original deadline changes nothing '
+        'further', () async {
+      final container = await buildContainer();
+      final c = container.read(runControllerProvider.notifier);
+      c.arm();
+
+      fakeAsync((async) {
+        c.startRunning();
+        expect(
+          async.nonPeriodicTimerCount,
+          1,
+          reason: 'the auto-miss timer is scheduled the instant the attempt goes live',
+        );
+
+        burnPastMinStopElapsed();
+        final base = c.liveElapsed;
+        c.state = c.state.copyWith(target: base); // -> perfect on manual stop
+        c.registerStop();
+
+        expect(
+          async.nonPeriodicTimerCount,
+          0,
+          reason: 'a manual stop must cancel the pending auto-miss timer',
+        );
+        expect(c.state.lastTier, StopTier.perfect);
+
+        final afterManualStop = c.state;
+        async.elapse(const Duration(seconds: 10));
+
+        expect(
+          c.state,
+          same(afterManualStop),
+          reason: 'no stale auto-miss timer may fire after a manual stop '
+              'already resolved this attempt',
+        );
+      });
+    });
+
+    test('is cancelled by pause() — no pending timer survives, and the '
+        'discarded attempt is never auto-missed even after the original '
+        'deadline passes while paused', () async {
+      final container = await buildContainer();
+      final c = container.read(runControllerProvider.notifier);
+      c.arm();
+
+      fakeAsync((async) {
+        c.startRunning();
+        expect(async.nonPeriodicTimerCount, 1);
+
+        c.pause();
+        expect(
+          async.nonPeriodicTimerCount,
+          0,
+          reason: 'pause() must cancel the pending auto-miss timer',
+        );
+
+        async.elapse(const Duration(seconds: 10));
+        expect(
+          c.state.phase,
+          RunPhase.paused,
+          reason: 'no stale auto-miss timer may fire while paused',
+        );
+
+        c.resume();
+        expect(c.state.phase, RunPhase.armed);
+      });
+    });
+
+    test('is cancelled by restartRun() — no pending timer survives', () async {
+      final container = await buildContainer();
+      final c = container.read(runControllerProvider.notifier);
+      c.arm();
+
+      fakeAsync((async) {
+        c.startRunning();
+        expect(async.nonPeriodicTimerCount, 1);
+
+        c.restartRun();
+        expect(
+          async.nonPeriodicTimerCount,
+          0,
+          reason: 'restartRun() must cancel the pending auto-miss timer',
+        );
+
+        final afterRestart = c.state;
+        async.elapse(const Duration(seconds: 10));
+
+        expect(
+          c.state,
+          same(afterRestart),
+          reason: 'no stale auto-miss timer may fire against the restarted run',
+        );
+      });
+    });
+
+    test('is cancelled on controller dispose — no stale timer fires against '
+        'disposed state (architecture v2 §9 risk 9/10)', () async {
+      final container = await buildContainer();
+      final c = container.read(runControllerProvider.notifier);
+      c.arm();
+
+      fakeAsync((async) {
+        c.startRunning();
+        expect(async.nonPeriodicTimerCount, 1);
+
+        container.dispose();
+
+        expect(
+          async.nonPeriodicTimerCount,
+          0,
+          reason: 'ref.onDispose must cancel the auto-miss timer alongside '
+              'the clock teardown',
+        );
+
+        // Letting a lot of fake time pass must not throw, even though the
+        // controller/notifier is now disposed — confirms no stale Timer
+        // callback is left to fire against it.
+        expect(() => async.elapse(const Duration(seconds: 10)), returnsNormally);
+      });
     });
   });
 

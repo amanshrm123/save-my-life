@@ -105,6 +105,12 @@ class _AvatarFigurePainter extends CustomPainter {
   static const double _strokeWidth = 2.5;
   static const double _detailStrokeWidth = 1.5;
 
+  /// Minimum rendered fill height, in the same 0-100 units as
+  /// [fillHeightPercent] — a visual floor only, so a critical/near-death
+  /// life% still shows a legible colored sliver instead of reading as an
+  /// empty/white body.
+  static const double _kMinVisibleFillPercent = 6;
+
   @override
   void paint(Canvas canvas, Size size) {
     canvas.save();
@@ -142,8 +148,17 @@ class _AvatarFigurePainter extends CustomPainter {
     canvas.drawPath(path, Paint()..color = AppColors.paper);
 
     // Bottom-up life-meter fill, clipped to the vessel's own silhouette.
+    // Floored at `_kMinVisibleFillPercent` so the critical/final-band case
+    // (life near 0%) always shows a clearly visible colored sliver instead
+    // of reading as empty/white — flagged independently by both the visual
+    // sign-off pass and the player-reviewer gut-check on the Play Loop
+    // avatar-life-meter revision. Geometry-only floor, does not touch the
+    // color rule (still driven purely by `fillColorPercent`'s real value).
     final vesselHeight = _baseY - _shoulderY;
-    final fillTop = _baseY - vesselHeight * (fillHeightPercent / 100);
+    final effectiveFillHeightPercent = fillHeightPercent < _kMinVisibleFillPercent
+        ? _kMinVisibleFillPercent
+        : fillHeightPercent;
+    final fillTop = _baseY - vesselHeight * (effectiveFillHeightPercent / 100);
     canvas.save();
     canvas.clipPath(path);
     canvas.drawRect(

@@ -8,8 +8,7 @@ import 'package:timing_tap/features/outcome/presentation/outcome_card_screen.dar
 import 'package:timing_tap/features/play_loop/domain/run_state.dart';
 import 'package:timing_tap/features/play_loop/presentation/countdown_view.dart';
 import 'package:timing_tap/features/play_loop/presentation/play_loop_screen.dart';
-import 'package:timing_tap/features/play_loop/presentation/widgets/stop_button.dart';
-import 'package:timing_tap/features/play_loop/presentation/widgets/target_arm_button.dart';
+import 'package:timing_tap/features/play_loop/presentation/widgets/primary_action_button.dart';
 
 import 'support/app_harness.dart';
 
@@ -34,14 +33,23 @@ void main() {
       await tapPlayFromHome(tester);
       await pumpPastCountdown(tester);
 
-      await tester.tap(find.byType(TargetArmButton));
+      // Arm via the merged button's `armStart` look.
+      await tester.tap(find.byType(PrimaryActionButton));
       await tester.pump();
       expect(runControllerOf(tester).state.phase, RunPhase.running);
 
+      // Burn real wall-clock time past `RunConfig.minStopElapsedMs` so the
+      // FIRST of the two STOP taps below is a genuine, accepted stop (not
+      // itself swallowed by the fast-double-tap guard) — this test is about
+      // the `_stopConsumed`/phase double-tap guard specifically, a distinct
+      // invariant from the near-instant-tap guard covered by the next test.
+      burnPastMinStopElapsed();
+
       // Two STOP taps fired back-to-back, with no pump/rebuild in between —
       // the closest a widget test can get to a genuine fast real double-tap.
-      await tester.tap(find.byType(StopButton));
-      await tester.tap(find.byType(StopButton), warnIfMissed: false);
+      // The same widget (now reskinned to `stopNormal`) handles both.
+      await tester.tap(find.byType(PrimaryActionButton));
+      await tester.tap(find.byType(PrimaryActionButton), warnIfMissed: false);
       await tester.pump();
 
       expect(tester.takeException(), isNull);
@@ -62,7 +70,11 @@ void main() {
   );
 
   testWidgets(
-    'rapid double-tap on the ARM plate only starts running once',
+    'a rapid double-tap on the merged button while arming is fully '
+    'suppressed on the second tap — never a duplicate start, and never an '
+    'unearned stop either (design spec v2 §3\'s merged-button behavior; '
+    'fix for the merged-button double-tap regression, RunConfig.'
+    'minStopElapsedMs)',
     (tester) async {
       final service = await mockPrefsService({
         kKeyOnboardingComplete: true,
@@ -74,17 +86,40 @@ void main() {
       await pumpPastCountdown(tester);
       expect(runControllerOf(tester).state.phase, RunPhase.armed);
 
-      await tester.tap(find.byType(TargetArmButton));
-      await tester.tap(find.byType(TargetArmButton), warnIfMissed: false);
+      // Two taps fired back-to-back, with no pump/rebuild in between: the
+      // first flips the controller straight to `running` (synchronously,
+      // ahead of any rebuild); the still-un-rebuilt widget's second tap
+      // therefore hits `handlePrimaryPointerDown()` while the phase is
+      // already `running`, resolving as that same attempt's would-be stop —
+      // at ~0ms elapsed, well under `RunConfig.minStopElapsedMs`, so it must
+      // be fully suppressed rather than an unearned Miss (or an instant
+      // death, had this landed during `finalBandRunning`).
+      await tester.tap(find.byType(PrimaryActionButton));
+      await tester.tap(find.byType(PrimaryActionButton), warnIfMissed: false);
       await tester.pump();
 
       expect(tester.takeException(), isNull);
+      final state = runControllerOf(tester).state;
       expect(
-        runControllerOf(tester).state.phase,
+        state.phase,
         RunPhase.running,
-        reason: 'a second ARM tap once already running must be a no-op '
-            '(architecture v2 §9 risk 4), through the real GestureDetector',
+        reason: 'the second near-instant tap on the same merged widget must '
+            'be suppressed, not resolved as a stop for the run the first '
+            'tap just started',
       );
+      expect(
+        state.attemptIndex,
+        0,
+        reason: 'a suppressed too-fast stop must not count as an attempt',
+      );
+
+      // Unlike the suppressed test above, the run is still genuinely
+      // `running` here, which means `startRunning()`'s real auto-miss
+      // `Timer` is still pending (`RunConfig.autoMissGraceMs` past the
+      // random target, up to ~7s away) — `pause()` cancels it (same
+      // architecture v2 §9 risk 1 discard-in-flight path a real backgrounded
+      // app would take) so no pending `Timer` survives this test's teardown.
+      runControllerOf(tester).pause();
     },
   );
 

@@ -17,13 +17,11 @@ import '../domain/run_state.dart';
 import '../state/play_loop_providers.dart';
 import 'countdown_view.dart';
 import 'widgets/legend_pills.dart';
-import 'widgets/life_bar.dart';
 import 'widgets/outcome_flash.dart';
 import 'widgets/pause_overlay.dart';
-import 'widgets/run_chips.dart';
-import 'widgets/stop_button.dart';
+import 'widgets/play_hud_bar.dart';
+import 'widgets/primary_action_button.dart';
 import 'widgets/stopwatch_plate.dart';
-import 'widgets/target_arm_button.dart';
 
 /// Hosts the whole Play Loop phase machine (architecture v2 §5/§7): the
 /// `GameClock` access (via `RunController`), the display `Ticker`, the raw
@@ -131,13 +129,6 @@ class _PlayLoopScreenState extends ConsumerState<PlayLoopScreen>
   void _onRestart() => ref.read(runControllerProvider.notifier).restartRun();
   void _onQuit() => Navigator.of(context).popUntil((r) => r.settings.name == AppRoutes.home);
 
-  void _onArm() {
-    unawaited(ref.read(audioServiceProvider).playTap());
-    ref.read(runControllerProvider.notifier).startRunning();
-  }
-
-  void _onStopTap() => ref.read(runControllerProvider.notifier).registerStop();
-
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     // Architecture v2 §9 risk 1 — the headline memory-safety issue: a
@@ -180,8 +171,6 @@ class _PlayLoopScreenState extends ConsumerState<PlayLoopScreen>
                   state: state,
                   elapsedNotifier: _elapsedNotifier,
                   onPause: _onPause,
-                  onArm: _onArm,
-                  onStopTap: _onStopTap,
                 ),
               if (state.phase == RunPhase.paused)
                 PauseOverlay(onResume: _onResume, onRestart: _onRestart, onQuit: _onQuit),
@@ -202,18 +191,36 @@ class _Hud extends ConsumerWidget {
     required this.state,
     required this.elapsedNotifier,
     required this.onPause,
-    required this.onArm,
-    required this.onStopTap,
   });
 
   final RunState state;
   final ValueNotifier<Duration> elapsedNotifier;
   final VoidCallback onPause;
-  final VoidCallback onArm;
-  final VoidCallback onStopTap;
 
   RunPhase get _displayPhase =>
       state.phase == RunPhase.paused ? (state.phaseBeforePause ?? RunPhase.armed) : state.phase;
+
+  static PrimaryActionLook _lookForPhase(RunPhase phase) {
+    switch (phase) {
+      case RunPhase.armed:
+      case RunPhase.finalBandArmed:
+        return PrimaryActionLook.armStart;
+      case RunPhase.running:
+        return PrimaryActionLook.stopNormal;
+      case RunPhase.finalBandRunning:
+        return PrimaryActionLook.stopFinal;
+      case RunPhase.stopped:
+      case RunPhase.countdown:
+      case RunPhase.paused:
+      case RunPhase.ended:
+        // `stopped` is the real, spec'd `dwellDimmed` case; the others are
+        // unreachable here (the screen shows `CountdownView` during
+        // countdown, `_displayPhase` never surfaces `paused`, and `ended`
+        // is a single transient frame before hand-off) — `dwellDimmed` is
+        // an inert-by-controller-guard, visually safe default regardless.
+        return PrimaryActionLook.dwellDimmed;
+    }
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -222,45 +229,61 @@ class _Hud extends ConsumerWidget {
         displayPhase == RunPhase.finalBandRunning ||
         (displayPhase == RunPhase.stopped && state.lastStopWasFinalBand);
 
+    // Deliberately NOT build-time-resolved: a stale closure from a previous
+    // build (e.g. a fast double-tap landing on this same merged widget
+    // before it has rebuilt to reflect the first tap's phase change) must
+    // never trust its own build-time `displayPhase`. Instead this reads the
+    // controller's live `state.phase` immediately before/after the real
+    // call, so the cosmetic sound/haptic always matches what THIS call
+    // actually did — start, accepted stop, or a suppressed too-fast stop
+    // (`RunConfig.minStopElapsedMs`) — never what the phase merely looked
+    // like at the last rebuild. Both cosmetic effects are invoked strictly
+    // *after* the real `handlePrimaryPointerDown()` call returns — never
+    // before, never gating it (architecture G2).
+    void onPrimaryTap() {
+      final phaseBefore = ref.read(runControllerProvider).phase;
+      ref.read(runControllerProvider.notifier).handlePrimaryPointerDown();
+      final phaseAfter = ref.read(runControllerProvider).phase;
+      final wasArming = phaseBefore == RunPhase.armed || phaseBefore == RunPhase.finalBandArmed;
+      final wasStart = wasArming &&
+          (phaseAfter == RunPhase.running || phaseAfter == RunPhase.finalBandRunning);
+      if (wasStart) {
+        unawaited(ref.read(audioServiceProvider).playTap());
+        AppFeedback.lightImpactIfEnabled();
+      }
+      // A stop tap (accepted or suppressed-too-fast) gets no cosmetic sound
+      // here: an accepted stop already gets its own tier-based haptic from
+      // `_onStopped`, unchanged; a suppressed too-fast stop must play
+      // nothing at all, since nothing genuine happened.
+    }
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
       child: Column(
         children: [
-          RunChips(runNumber: state.runNumber, deaths: state.deaths, onPause: onPause),
-          const SizedBox(height: 10),
-          LifeBar(state: state),
+          PlayHudBar(state: state, onPause: onPause),
           Expanded(
             child: Center(
-              child: _CenterContent(
-                displayPhase: displayPhase,
-                state: state,
-                elapsedNotifier: elapsedNotifier,
-                onArm: onArm,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: _CenterContent(
+                  displayPhase: displayPhase,
+                  state: state,
+                  elapsedNotifier: elapsedNotifier,
+                ),
               ),
             ),
           ),
           LegendPills(finalBand: finalBand),
           const SizedBox(height: 14),
-          StopButton(
-            mainLabel: 'STOP',
-            subLabel: _stopSubLabel(displayPhase, state.target, finalBand),
-            enabled: displayPhase == RunPhase.running || displayPhase == RunPhase.finalBandRunning,
-            finalBand: finalBand,
-            onStopTap: onStopTap,
+          PrimaryActionButton(
+            look: _lookForPhase(displayPhase),
+            target: state.target,
+            onTap: onPrimaryTap,
           ),
         ],
       ),
     );
-  }
-
-  String _stopSubLabel(RunPhase phase, Duration target, bool finalBand) {
-    if (phase == RunPhase.armed || phase == RunPhase.finalBandArmed) {
-      return 'tap "Stop at" first to start';
-    }
-    if (finalBand) {
-      return 'one clean stop saves you';
-    }
-    return 'stop as close to ${formatClock(target)} as you can';
   }
 }
 
@@ -269,20 +292,33 @@ class _CenterContent extends ConsumerWidget {
     required this.displayPhase,
     required this.state,
     required this.elapsedNotifier,
-    required this.onArm,
   });
 
   final RunPhase displayPhase;
   final RunState state;
   final ValueNotifier<Duration> elapsedNotifier;
-  final VoidCallback onArm;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     switch (displayPhase) {
       case RunPhase.armed:
+        return const Text(
+          'Tap below when you\'re ready.',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontFamily: 'Fredoka',
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: AppColors.mute,
+            height: 1.1,
+          ),
+        );
+
       case RunPhase.finalBandArmed:
-        return TargetArmButton(target: state.target, onArm: onArm);
+        // Danger-parity with `_RunningContent`'s own final-band line (design
+        // spec v2 §2.1): the higher-priority urgency message outranks the
+        // neutral teaching line here, rather than stacking both.
+        return const _LastChanceLine();
 
       case RunPhase.running:
         return _RunningContent(target: state.target, elapsedNotifier: elapsedNotifier, finalBand: false);
@@ -301,7 +337,34 @@ class _CenterContent extends ConsumerWidget {
   }
 }
 
-class _RunningContent extends ConsumerWidget {
+/// The final-band urgency line — "`<name>`, last chance" / anonymous
+/// fallback "Last chance" (design spec v1 §2.7, unchanged) — shared verbatim
+/// between `_RunningContent`'s final-band frame and the new
+/// `finalBandArmed` center content (design spec v2 §2.1: danger-parity
+/// between the armed and running final-band frames).
+class _LastChanceLine extends ConsumerWidget {
+  const _LastChanceLine();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final name = ref.watch(playerProfileProvider).maybeWhen(
+      data: (p) => p.isAnonymous ? null : p.name,
+      orElse: () => null,
+    );
+    return Text(
+      name == null ? 'Last chance' : '$name, last chance',
+      style: const TextStyle(
+        fontFamily: 'Fredoka',
+        fontSize: 11,
+        fontWeight: FontWeight.w700,
+        color: AppColors.red,
+        height: 1.1,
+      ),
+    );
+  }
+}
+
+class _RunningContent extends StatelessWidget {
   const _RunningContent({
     required this.target,
     required this.elapsedNotifier,
@@ -313,31 +376,16 @@ class _RunningContent extends ConsumerWidget {
   final bool finalBand;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final tint = finalBand ? AppColors.red : AppColors.greenDark;
-    final name = finalBand
-        ? ref.watch(playerProfileProvider).maybeWhen(
-            data: (p) => p.isAnonymous ? null : p.name,
-            orElse: () => null,
-          )
-        : null;
 
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
         if (finalBand)
-          Padding(
-            padding: const EdgeInsets.only(bottom: 4),
-            child: Text(
-              name == null ? 'Last chance' : '$name, last chance',
-              style: const TextStyle(
-                fontFamily: 'Fredoka',
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
-                color: AppColors.red,
-                height: 1.1,
-              ),
-            ),
+          const Padding(
+            padding: EdgeInsets.only(bottom: 4),
+            child: _LastChanceLine(),
           ),
         Text(
           'Target ${formatClock(target)}',
@@ -362,7 +410,14 @@ class _RunningContent extends ConsumerWidget {
           ),
         ),
         const SizedBox(height: 10),
-        StopwatchPlate(filled: false, tint: tint, liveElapsed: elapsedNotifier),
+        // Isolates the 60fps `ValueListenableBuilder` digit updates from the
+        // rest of the HUD's paint layer (notably `LifeAvatar`'s heavier
+        // `CustomPainter`) — the avatar itself deliberately has no boundary
+        // (product-architect: not worth the memory cost for a large,
+        // rarely-changing element); this small, genuinely-60fps plate is.
+        RepaintBoundary(
+          child: StopwatchPlate(filled: false, tint: tint, liveElapsed: elapsedNotifier),
+        ),
       ],
     );
   }
@@ -406,7 +461,9 @@ class _StoppedContent extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 10),
-        StopwatchPlate(filled: true, tint: tint, staticValue: state.lastStopElapsed ?? Duration.zero),
+        RepaintBoundary(
+          child: StopwatchPlate(filled: true, tint: tint, staticValue: state.lastStopElapsed ?? Duration.zero),
+        ),
         const SizedBox(height: 10),
         OutcomeFlash(state: state),
       ],

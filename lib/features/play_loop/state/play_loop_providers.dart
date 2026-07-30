@@ -51,6 +51,17 @@ class RunController extends Notifier<RunState> {
   /// on re-arm (`arm()`/`startRunning()`/`enterFinalBand()`).
   bool _stopConsumed = false;
 
+  /// Auto-miss timeout (design spec v2 §4, new `RunConfig.autoMissGraceMs`):
+  /// scheduled the instant an attempt goes live (`startRunning()`), fires a
+  /// genuine `registerStop()` once the attempt becomes numerically
+  /// unavoidable-Miss-plus-grace-period, so a stalled/never-arriving tap
+  /// can't strand an attempt (or the run) forever. Memory-safety-critical:
+  /// every place that ends/interrupts a live attempt must cancel this timer
+  /// (`_cancelAutoMiss()`) so a stale instance can never fire against
+  /// disposed/wrong state — see the cancel-call-sites cross-referenced in
+  /// this class's doc comments below.
+  Timer? _autoMissTimer;
+
   @override
   RunState build() {
     ref.onDispose(() {
@@ -59,8 +70,34 @@ class RunController extends Notifier<RunState> {
       // Home<->Play cycle (this provider is `.autoDispose`).
       _clock.stop();
       _clock.reset();
+      _cancelAutoMiss();
     });
     return _freshRunState();
+  }
+
+  /// Schedules a fresh auto-miss `Timer` for the attempt that just went live,
+  /// firing a genuine `registerStop()` (design spec v2 §4) — never a
+  /// synthesized elapsed value; the real `_clock.elapsed` is read at fire
+  /// time, exactly as a manual tap would. Cancels any existing timer first
+  /// (defensive against a double-call).
+  void _scheduleAutoMiss() {
+    _cancelAutoMiss();
+    _autoMissTimer = Timer(
+      Duration(
+        milliseconds:
+            state.target.inMilliseconds + config.hitBandMs + config.autoMissGraceMs,
+      ),
+      registerStop,
+    );
+  }
+
+  /// Idempotent: cancels and nulls the auto-miss timer if one is pending.
+  /// Called from every point a live attempt can end or be pre-empted
+  /// (manual stop, pause, restart, re-arm, dispose) so a stale timer can
+  /// never fire against state it no longer applies to.
+  void _cancelAutoMiss() {
+    _autoMissTimer?.cancel();
+    _autoMissTimer = null;
   }
 
   /// Read-only live elapsed time for the screen's display `Ticker` — the
@@ -96,6 +133,7 @@ class RunController extends Notifier<RunState> {
   /// countdown -> armed (countdown timer complete), and re-arm: stopped ->
   /// armed with a fresh target (the "continue" branch of stopped -> evaluate).
   void arm() {
+    _cancelAutoMiss();
     if (state.phase == RunPhase.countdown) {
       _stopConsumed = false;
       state = state.copyWith(phase: RunPhase.armed);
@@ -108,6 +146,7 @@ class RunController extends Notifier<RunState> {
   /// stopped -> finalBandArmed (the other non-terminal branch of stopped ->
   /// evaluate, when life has dropped into the final band).
   void enterFinalBand() {
+    _cancelAutoMiss();
     if (state.phase != RunPhase.stopped) return;
     _stopConsumed = false;
     state = state.copyWith(
@@ -120,16 +159,50 @@ class RunController extends Notifier<RunState> {
   /// "STOP AT" plate tap). Guarded against double-tap per architecture v2
   /// §9 risk 4.
   void startRunning() {
+    // Defensive cancel-before-schedule (in case of a double-call) — the
+    // real schedule happens again, correctly, in whichever branch below
+    // actually transitions the phase.
+    _cancelAutoMiss();
     if (state.phase == RunPhase.armed) {
       _stopConsumed = false;
       _clock.reset();
       _clock.start();
       state = state.copyWith(phase: RunPhase.running);
+      _scheduleAutoMiss();
     } else if (state.phase == RunPhase.finalBandArmed) {
       _stopConsumed = false;
       _clock.reset();
       _clock.start();
       state = state.copyWith(phase: RunPhase.finalBandRunning);
+      _scheduleAutoMiss();
+    }
+  }
+
+  /// The merged bottom button's single entry point (design spec v2 §3;
+  /// architecture G2, preserved through the two-button merge). The
+  /// **literal first statement** reads `_clock.elapsed` — before any guard,
+  /// branch, provider read, or state mutation — so merging the old
+  /// `TargetArmButton`/`StopButton` taps into one widget can never introduce
+  /// gesture-arena/build latency into the STOP-tap-to-clock-read chain.
+  /// Only after that capture does it switch on `state.phase`: a live phase
+  /// resolves as a stop (delegating to [_resolveStop], the exact same path
+  /// a manual/auto-miss stop uses); an armed phase starts the run; anything
+  /// else is a no-op.
+  void handlePrimaryPointerDown() {
+    final captured = _clock.elapsed;
+
+    switch (state.phase) {
+      case RunPhase.running:
+      case RunPhase.finalBandRunning:
+        _resolveStop(captured);
+      case RunPhase.armed:
+      case RunPhase.finalBandArmed:
+        startRunning();
+      case RunPhase.countdown:
+      case RunPhase.stopped:
+      case RunPhase.paused:
+      case RunPhase.ended:
+        break; // no-op — nothing to start or stop from these phases.
     }
   }
 
@@ -137,17 +210,39 @@ class RunController extends Notifier<RunState> {
   /// first line** reads `_clock.elapsed` — a direct synchronous read, one
   /// call hop from the raw `Listener.onPointerDown` — before any guard,
   /// branch, or state mutation, so gesture-arena/build latency can never
-  /// pollute the measured instant.
+  /// pollute the measured instant. Delegates everything after the capture
+  /// to [_resolveStop] — kept as a thin public entry point since
+  /// `run_controller_test.dart` calls it directly, and since the auto-miss
+  /// timer (`_scheduleAutoMiss`) also fires this exact method.
   void registerStop() {
     final stopped = _clock.elapsed;
+    _resolveStop(stopped);
+  }
 
+  /// Everything that happens once a stop-time has already been captured
+  /// (by either [registerStop] or [handlePrimaryPointerDown]) — guards,
+  /// classification, and the resulting state transition. Not itself
+  /// latency-sensitive: by the time this runs, the clock read is already
+  /// done.
+  void _resolveStop(Duration stopped) {
     if (_stopConsumed) return;
     if (state.phase != RunPhase.running &&
         state.phase != RunPhase.finalBandRunning) {
       return;
     }
+    // Fast-double-tap guard (`RunConfig.minStopElapsedMs`): the merged
+    // button means a second tap can land on the very same widget
+    // near-instantly after the start tap, with no widget-hunt in between.
+    // Below this threshold the tap is fully inert — not consumed, no phase
+    // change, no attempt advanced — as if it never happened. Comfortably
+    // below `targetMinMs` (2000ms), so a genuine stop is never suppressed.
+    if (stopped.inMilliseconds < config.minStopElapsedMs) return;
     _stopConsumed = true;
     _clock.stop();
+    // A genuine, accepted stop pre-empts whatever auto-miss was pending for
+    // this same attempt (manual stop or the auto-miss timer's own fire both
+    // land here).
+    _cancelAutoMiss();
 
     final tier = classifyStop(target: state.target, stopped: stopped, config: config);
 
@@ -268,9 +363,11 @@ class RunController extends Notifier<RunState> {
         restorePhase = RunPhase.finalBandArmed;
       case RunPhase.running:
         _clock.stop();
+        _cancelAutoMiss();
         restorePhase = RunPhase.armed;
       case RunPhase.finalBandRunning:
         _clock.stop();
+        _cancelAutoMiss();
         restorePhase = RunPhase.finalBandArmed;
       default:
         return; // not a pausable phase (countdown/stopped/paused/ended).
@@ -296,6 +393,7 @@ class RunController extends Notifier<RunState> {
     _stopConsumed = false;
     _clock.stop();
     _clock.reset();
+    _cancelAutoMiss();
     state = RunState.initial.copyWith(
       phase: RunPhase.armed,
       target: _randomTarget(),
