@@ -26,7 +26,7 @@ const Duration kStoryFetchTimeout = Duration(seconds: 4);
 /// Minimum interval between network refreshes.
 ///
 /// Same integrator note as [kStoryFetchTimeout] applies.
-const Duration kStoryPoolTtl = Duration(hours: 6);
+const Duration kStoryPoolTtl = Duration(hours: 1);
 
 /// Where the currently-installed [StoryPool] came from (R6). Not read by any
 /// UI or provider today; exists so a future analytics hook has a clean,

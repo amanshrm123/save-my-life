@@ -352,13 +352,13 @@ void main() {
         now: () => now.value,
       );
 
-      // Still within the TTL.
-      now.value = now.value.add(const Duration(hours: 1));
+      // Still within the TTL (kStoryPoolTtl is 1 hour).
+      now.value = now.value.add(const Duration(minutes: 30));
       await repo.refreshIfStale();
       expect(callCount, 0);
 
       // Past the TTL.
-      now.value = now.value.add(const Duration(hours: 6));
+      now.value = now.value.add(const Duration(minutes: 40));
       await repo.refreshIfStale();
       expect(callCount, 1);
     });
