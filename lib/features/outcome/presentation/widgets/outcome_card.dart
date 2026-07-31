@@ -8,8 +8,9 @@ import 'outcome_chip.dart';
 
 /// The resolved outcome-card body (design v1 §3 anatomy) — the exact
 /// composition captured by the sharing `RepaintBoundary` (architecture v4
-/// §6). Chip + icon top row, vertically-centered headline + story in the
-/// middle, tagline + wordmark + store badges pinned at the bottom.
+/// §6). Chip + icon top row, top-anchored headline + story in the middle
+/// (design v1 Revision 3 §R3.2 — was vertically centered), tagline +
+/// wordmark + store badges pinned at the bottom.
 class OutcomeCard extends StatelessWidget {
   const OutcomeCard({
     super.key,
@@ -54,13 +55,18 @@ class OutcomeCard extends StatelessWidget {
                       k: k,
                     ),
                   ),
-                  Text(content.icon, style: TextStyle(fontSize: 28 * k, height: 1)),
+                  Text(
+                    content.icon,
+                    style: TextStyle(fontSize: 28 * k, height: 1),
+                  ),
                 ],
               ),
+              SizedBox(height: 12 * k),
               Expanded(
-                child: Center(
+                child: Align(
+                  alignment: Alignment.topCenter,
                   // Design v1 §10.7 accepts that unbounded authored copy
-                  // could overflow this fixed 9:16 middle region and
+                  // could overflow this fixed middle region and
                   // resolves it as a content-authoring constraint (keep
                   // headlines ~2 lines, stories ~4 lines) rather than a
                   // layout one — but with 66 pooled beats and random
@@ -73,13 +79,53 @@ class OutcomeCard extends StatelessWidget {
                   // engages as a last-resort safety net for the rare
                   // outlier — the same established pattern already used
                   // for the wordmark/store-badge/chip overflows above.
+                  //
+                  // Top-anchored, not centered (design v1 Revision 3
+                  // §R3.2): centering split leftover space into two dead
+                  // zones (above the headline, below the story) that read
+                  // as missing content on short runs. Anchoring to the top
+                  // (matching the fixed 12dp lead-in gap above) pools all
+                  // leftover space in one place — below the story, above
+                  // `CardFooter` — which reads as intentional breathing
+                  // room instead.
                   child: FittedBox(
                     fit: BoxFit.scaleDown,
-                    child: _StoryBlock(
-                      playerName: playerName,
-                      content: content,
-                      palette: palette,
-                      k: k,
+                    // `FittedBox` alone hands its child fully UNBOUNDED
+                    // width, so every `Text` below would never wrap (it'd
+                    // lay out as one long single line) and `scaleDown`
+                    // would then just uniformly shrink that one line to
+                    // fit — never the intended multi-line wrap (design v1
+                    // §10.7: headline ~2 lines, story ~4 lines). Bounding
+                    // the width here to the shell's own reference content
+                    // width (`referenceWidth` 250 minus this file's 22+22
+                    // horizontal padding = 206, scaled by `k`) makes the
+                    // text wrap for real at that width; `scaleDown` then
+                    // reverts to its originally-intended role of a pure
+                    // *height* safety net for the rare outlier beat that's
+                    // still too tall even once wrapped.
+                    child: SizedBox(
+                      width: 206 * k,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _StoryBlock(
+                            playerName: playerName,
+                            content: content,
+                            palette: palette,
+                            k: k,
+                          ),
+                          SizedBox(height: 10 * k),
+                          Container(
+                            width: 36 * k,
+                            height: 2 * k,
+                            decoration: BoxDecoration(
+                              color: palette.baseText.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(1 * k),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -93,8 +139,9 @@ class OutcomeCard extends StatelessWidget {
   }
 }
 
-/// Headline + story — this whole block re-centers per-run as its content's
-/// length varies (design v1 §3: expected, not a bug).
+/// Headline + story — this whole block re-sizes per-run as its content's
+/// length varies (design v1 §3: expected, not a bug), top-anchored within
+/// its available space (design v1 Revision 3 §R3.2) rather than centered.
 class _StoryBlock extends StatelessWidget {
   const _StoryBlock({
     required this.playerName,

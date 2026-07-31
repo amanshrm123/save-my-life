@@ -59,8 +59,8 @@ void main() {
   }
 
   StickerButton findShareButton(WidgetTester tester) {
-    // Death's share label is 'Share →' (`_shareButtonStyle`); Eternal's is
-    // 'Flex it →' — this suite only exercises Death, so match on whichever
+    // Death's share label is 'Share' (`_shareButtonStyle`); Eternal's is
+    // 'Flex it' — this suite only exercises Death, so match on whichever
     // of the two `_ActionsRow` buttons is NOT 'Again', making it robust to
     // either label without hard-coding it.
     final buttons = tester.widgetList<StickerButton>(find.byType(StickerButton)).toList();
@@ -249,6 +249,46 @@ void main() {
       );
 
       await flushMinDurationTimer(tester);
+    },
+  );
+
+  testWidgets(
+    'REGRESSION: _ActionsRow actually passes the grown 44dp height to both '
+    'its Share and Again StickerButtons (not the old 40dp)',
+    (tester) async {
+      final s = summary();
+      await tester.pumpWidget(harness(s));
+      await tester.pump(const Duration(seconds: 2));
+      await tester.pump(const Duration(milliseconds: 100));
+
+      final buttons = tester.widgetList<StickerButton>(find.byType(StickerButton)).toList();
+      expect(buttons.length, 2, reason: 'exactly Share + Again on the resolved card');
+      for (final button in buttons) {
+        expect(button.height, 44);
+        expect(button.height, isNot(40));
+        expect(button.borderRadius, 14);
+        expect(button.restShadowOffset, 5);
+      }
+    },
+  );
+
+  testWidgets(
+    'REGRESSION: only the Share button opts into showTrailingArrow — '
+    '"Again" renders with the default (false), unaffected by the arrow slot',
+    (tester) async {
+      final s = summary();
+      await tester.pumpWidget(harness(s));
+      await tester.pump(const Duration(seconds: 2));
+      await tester.pump(const Duration(milliseconds: 100));
+
+      final share = findShareButton(tester);
+      final again = tester.widget<StickerButton>(find.widgetWithText(StickerButton, 'Again'));
+
+      expect(share.showTrailingArrow, isTrue);
+      expect(again.showTrailingArrow, isFalse);
+
+      // The arrow glyph itself is present exactly once (on Share only).
+      expect(find.text('→'), findsOneWidget);
     },
   );
 }

@@ -38,7 +38,7 @@ void main() {
       // itself is unchanged, but the rendered text is 'YOU DIED', not 'You
       // died'.
       expect(find.text('💀 YOU DIED'), findsOneWidget);
-      expect(find.widgetWithText(StickerButton, 'Share →'), findsOneWidget);
+      expect(find.widgetWithText(StickerButton, 'Share'), findsOneWidget);
       expect(service.totalRunsPlayed, 1);
       expect(service.totalDeaths, 1);
       expect(service.totalSurvives, 0);
@@ -54,7 +54,7 @@ void main() {
       // 🆘, not 🛟 (founder-resolved tofu-rendering swap, design v1 §0/§4.2),
       // and uppercased by `OutcomeChip`.
       expect(find.text('🆘 SURVIVED'), findsOneWidget);
-      expect(find.widgetWithText(StickerButton, 'Share →'), findsOneWidget);
+      expect(find.widgetWithText(StickerButton, 'Share'), findsOneWidget);
       expect(service.totalRunsPlayed, 2);
       expect(service.totalDeaths, 1, reason: 'unaffected by the survived run');
       expect(service.totalSurvives, 1);
@@ -71,9 +71,9 @@ void main() {
       // §1.1/§4.3), uppercased by `OutcomeChip`.
       expect(find.text('✨ ETERNAL · TOP 0.3%'), findsOneWidget);
       expect(
-        find.widgetWithText(StickerButton, 'Flex it →'),
+        find.widgetWithText(StickerButton, 'Flex it'),
         findsOneWidget,
-        reason: 'the eternal outcome uses a distinct share-button label, not "Share →"',
+        reason: 'the eternal outcome uses a distinct share-button label, not "Share"',
       );
       expect(service.totalRunsPlayed, 3);
       expect(service.totalDeaths, 1, reason: 'unaffected by the eternal run');

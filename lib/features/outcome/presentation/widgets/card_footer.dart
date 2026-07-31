@@ -32,9 +32,13 @@ class CardFooter extends StatelessWidget {
             ),
           ),
         ),
-        SizedBox(height: 10 * k),
-        OutcomeWordmark(color: palette.baseText, accent: palette.wordmarkAccent, k: k),
-        SizedBox(height: 10 * k),
+        SizedBox(height: 8 * k),
+        OutcomeWordmark(
+          color: palette.baseText,
+          accent: palette.wordmarkAccent,
+          k: k,
+        ),
+        SizedBox(height: 8 * k),
         StoreBadges(color: palette.baseText, k: k),
       ],
     );
@@ -45,7 +49,12 @@ class CardFooter extends StatelessWidget {
 /// than the 19dp wordmark text beside it (design v1 §5) — a different ratio
 /// than the splash screen's big hero mark; don't unify the two.
 class OutcomeWordmark extends StatelessWidget {
-  const OutcomeWordmark({super.key, required this.color, required this.accent, required this.k});
+  const OutcomeWordmark({
+    super.key,
+    required this.color,
+    required this.accent,
+    required this.k,
+  });
 
   final Color color;
   final Color accent;
@@ -78,7 +87,10 @@ class OutcomeWordmark extends StatelessWidget {
               ),
               children: [
                 const TextSpan(text: 'Stay '),
-                TextSpan(text: 'Alive', style: TextStyle(color: accent)),
+                TextSpan(
+                  text: 'Alive',
+                  style: TextStyle(color: accent),
+                ),
               ],
             ),
           ),
