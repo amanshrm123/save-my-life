@@ -15,7 +15,8 @@ double _triangleWave(double phase) {
 
 /// Tier-themed branded loader (design v1 §7) shown every time before the
 /// card resolves (min 2s, enforced one layer up by `outcomeStoryProvider`).
-/// Shares `OutcomeCardShell`'s 9:16 silhouette with the resolved card so
+/// Shares `OutcomeCardShell`'s 3:4 silhouette (design v1 Revision 5 §R5.1)
+/// with the resolved card so
 /// nothing shifts on resolve, and already uses the final tier palette
 /// (architecture v4 §4) so there's no colour flip when the loader swaps out.
 ///
@@ -41,8 +42,10 @@ class _OutcomeCardLoadingState extends State<OutcomeCardLoading>
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(vsync: this, duration: const Duration(seconds: 1))
-      ..repeat();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 1),
+    )..repeat();
   }
 
   @override
@@ -59,66 +62,99 @@ class _OutcomeCardLoadingState extends State<OutcomeCardLoading>
       builder: (context, k) {
         return Padding(
           padding: EdgeInsets.fromLTRB(22 * k, 26 * k, 22 * k, 22 * k),
-          child: Stack(
+          child: Column(
             children: [
-              Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    AnimatedBuilder(
-                      animation: _controller,
-                      builder: (context, child) {
-                        final elapsedMs =
-                            (_controller.lastElapsedDuration ?? Duration.zero).inMilliseconds;
-                        final pulse = _triangleWave((elapsedMs % 1000) / 1000);
-                        return Transform.scale(
-                          scale: 1 + 0.18 * pulse,
-                          child: Opacity(opacity: 1 - 0.3 * pulse, child: child),
-                        );
-                      },
-                      child: Text(
-                        '💓',
-                        style: TextStyle(fontSize: 44 * k, height: 1),
-                      ),
-                    ),
-                    SizedBox(height: 18 * k),
-                    Text(
-                      'Loading your life card…',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontFamily: 'Fredoka',
-                        fontSize: 19 * k,
-                        fontWeight: FontWeight.w700,
-                        color: palette.baseText,
-                      ),
-                    ),
-                    SizedBox(height: 18 * k),
-                    _DotsRow(controller: _controller, color: palette.loaderDotColor, k: k),
-                    SizedBox(height: 18 * k),
-                    SizedBox(
-                      width: 180 * k,
-                      child: Text(
-                        "Every run ends its own way. Let's see which one you got…",
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontFamily: 'Fredoka',
-                          fontSize: 12 * k,
-                          fontWeight: FontWeight.w600,
-                          color: palette.baseText.withValues(alpha: palette.loaderSublineOpacity),
+              Expanded(
+                child: Center(
+                  // Safety net for the 3:4 shell (design v1 Revision 5
+                  // §R5.1 rechecked this clearance but the actual rendered
+                  // content — real font metrics, not the doc's estimate —
+                  // no longer clears at every `k`/device combination.
+                  // `FittedBox(scaleDown)` is a no-op whenever this column
+                  // already fits (the common case, unchanged visuals) and
+                  // only engages as a last-resort shrink otherwise — the
+                  // same established pattern `outcome_card.dart`'s
+                  // `_StoryBlock` already uses for its own overflow risk.
+                  // Wrapping it in `Expanded`/`Center` here (rather than the
+                  // old `Stack` + `Positioned` wordmark) also means this
+                  // column is sized against the space actually left over
+                  // *after* the wordmark below, not the full padded height,
+                  // so there's no separate risk of it visually colliding
+                  // with the wordmark either.
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        AnimatedBuilder(
+                          animation: _controller,
+                          builder: (context, child) {
+                            final elapsedMs =
+                                (_controller.lastElapsedDuration ??
+                                        Duration.zero)
+                                    .inMilliseconds;
+                            final pulse = _triangleWave(
+                              (elapsedMs % 1000) / 1000,
+                            );
+                            return Transform.scale(
+                              scale: 1 + 0.18 * pulse,
+                              child: Opacity(
+                                opacity: 1 - 0.3 * pulse,
+                                child: child,
+                              ),
+                            );
+                          },
+                          child: Text(
+                            '💓',
+                            style: TextStyle(fontSize: 44 * k, height: 1),
+                          ),
                         ),
-                      ),
+                        SizedBox(height: 18 * k),
+                        Text(
+                          'Loading your life card…',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontFamily: 'Fredoka',
+                            fontSize: 19 * k,
+                            fontWeight: FontWeight.w700,
+                            color: palette.baseText,
+                          ),
+                        ),
+                        SizedBox(height: 18 * k),
+                        _DotsRow(
+                          controller: _controller,
+                          color: palette.loaderDotColor,
+                          k: k,
+                        ),
+                        SizedBox(height: 18 * k),
+                        SizedBox(
+                          width: 180 * k,
+                          child: Text(
+                            "Every run ends its own way. Let's see which one you got…",
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontFamily: 'Fredoka',
+                              fontSize: 12 * k,
+                              fontWeight: FontWeight.w600,
+                              color: palette.baseText.withValues(
+                                alpha: palette.loaderSublineOpacity,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
-                  ],
+                  ),
                 ),
               ),
-              // Wordmark only, pinned at the bottom — no tagline, no store
+              // Wordmark only, pinned at the bottom via the `Expanded`
+              // above consuming all remaining space — no tagline, no store
               // badges during loading (design v1 §7.1).
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                child: Center(
-                  child: OutcomeWordmark(color: palette.baseText, accent: palette.wordmarkAccent, k: k),
+              Center(
+                child: OutcomeWordmark(
+                  color: palette.baseText,
+                  accent: palette.wordmarkAccent,
+                  k: k,
                 ),
               ),
             ],
@@ -134,7 +170,11 @@ class _OutcomeCardLoadingState extends State<OutcomeCardLoading>
 /// driven by the SAME shared [controller] (via its elapsed wall time), never
 /// three independent `AnimationController`s.
 class _DotsRow extends StatelessWidget {
-  const _DotsRow({required this.controller, required this.color, required this.k});
+  const _DotsRow({
+    required this.controller,
+    required this.color,
+    required this.k,
+  });
 
   final AnimationController controller;
   final Color color;
@@ -153,8 +193,11 @@ class _DotsRow extends StatelessWidget {
           AnimatedBuilder(
             animation: controller,
             builder: (context, child) {
-              final elapsedMs = (controller.lastElapsedDuration ?? Duration.zero).inMilliseconds;
-              final phase = ((elapsedMs + _offsetsMs[i]) % _periodMs) / _periodMs;
+              final elapsedMs =
+                  (controller.lastElapsedDuration ?? Duration.zero)
+                      .inMilliseconds;
+              final phase =
+                  ((elapsedMs + _offsetsMs[i]) % _periodMs) / _periodMs;
               final eased = _triangleWave(phase);
               return Transform.translate(
                 offset: Offset(0, -6 * k * eased),

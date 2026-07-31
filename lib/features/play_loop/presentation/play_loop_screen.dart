@@ -53,7 +53,10 @@ class _PlayLoopScreenState extends ConsumerState<PlayLoopScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _ticker = createTicker(_onTick);
-    _subscription = ref.listenManual<RunState>(runControllerProvider, _onStateChanged);
+    _subscription = ref.listenManual<RunState>(
+      runControllerProvider,
+      _onStateChanged,
+    );
   }
 
   @override
@@ -69,7 +72,9 @@ class _PlayLoopScreenState extends ConsumerState<PlayLoopScreen>
       phase == RunPhase.running || phase == RunPhase.finalBandRunning;
 
   void _onTick(Duration _) {
-    _elapsedNotifier.value = ref.read(runControllerProvider.notifier).liveElapsed;
+    _elapsedNotifier.value = ref
+        .read(runControllerProvider.notifier)
+        .liveElapsed;
   }
 
   void _onStateChanged(RunState? previous, RunState next) {
@@ -84,7 +89,8 @@ class _PlayLoopScreenState extends ConsumerState<PlayLoopScreen>
       _onStopped(next);
     }
 
-    if (next.phase == RunPhase.finalBandArmed && previous?.phase != RunPhase.finalBandArmed) {
+    if (next.phase == RunPhase.finalBandArmed &&
+        previous?.phase != RunPhase.finalBandArmed) {
       AppFeedback.heavyImpactIfEnabled();
     }
 
@@ -127,14 +133,16 @@ class _PlayLoopScreenState extends ConsumerState<PlayLoopScreen>
   void _onPause() => ref.read(runControllerProvider.notifier).pause();
   void _onResume() => ref.read(runControllerProvider.notifier).resume();
   void _onRestart() => ref.read(runControllerProvider.notifier).restartRun();
-  void _onQuit() => Navigator.of(context).popUntil((r) => r.settings.name == AppRoutes.home);
+  void _onQuit() =>
+      Navigator.of(context).popUntil((r) => r.settings.name == AppRoutes.home);
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     // Architecture v2 §9 risk 1 — the headline memory-safety issue: a
     // backgrounded `Stopwatch` must never yield a stop-time. Auto-pause
     // discards any in-flight attempt rather than risk a corrupt read.
-    if (state == AppLifecycleState.inactive || state == AppLifecycleState.paused) {
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused) {
       final phase = ref.read(runControllerProvider).phase;
       if (_isLive(phase)) {
         ref.read(runControllerProvider.notifier).pause();
@@ -173,7 +181,11 @@ class _PlayLoopScreenState extends ConsumerState<PlayLoopScreen>
                   onPause: _onPause,
                 ),
               if (state.phase == RunPhase.paused)
-                PauseOverlay(onResume: _onResume, onRestart: _onRestart, onQuit: _onQuit),
+                PauseOverlay(
+                  onResume: _onResume,
+                  onRestart: _onRestart,
+                  onQuit: _onQuit,
+                ),
             ],
           ),
         ),
@@ -197,8 +209,9 @@ class _Hud extends ConsumerWidget {
   final ValueNotifier<Duration> elapsedNotifier;
   final VoidCallback onPause;
 
-  RunPhase get _displayPhase =>
-      state.phase == RunPhase.paused ? (state.phaseBeforePause ?? RunPhase.armed) : state.phase;
+  RunPhase get _displayPhase => state.phase == RunPhase.paused
+      ? (state.phaseBeforePause ?? RunPhase.armed)
+      : state.phase;
 
   static PrimaryActionLook _lookForPhase(RunPhase phase) {
     switch (phase) {
@@ -225,7 +238,8 @@ class _Hud extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final displayPhase = _displayPhase;
-    final finalBand = displayPhase == RunPhase.finalBandArmed ||
+    final finalBand =
+        displayPhase == RunPhase.finalBandArmed ||
         displayPhase == RunPhase.finalBandRunning ||
         (displayPhase == RunPhase.stopped && state.lastStopWasFinalBand);
 
@@ -244,9 +258,13 @@ class _Hud extends ConsumerWidget {
       final phaseBefore = ref.read(runControllerProvider).phase;
       ref.read(runControllerProvider.notifier).handlePrimaryPointerDown();
       final phaseAfter = ref.read(runControllerProvider).phase;
-      final wasArming = phaseBefore == RunPhase.armed || phaseBefore == RunPhase.finalBandArmed;
-      final wasStart = wasArming &&
-          (phaseAfter == RunPhase.running || phaseAfter == RunPhase.finalBandRunning);
+      final wasArming =
+          phaseBefore == RunPhase.armed ||
+          phaseBefore == RunPhase.finalBandArmed;
+      final wasStart =
+          wasArming &&
+          (phaseAfter == RunPhase.running ||
+              phaseAfter == RunPhase.finalBandRunning);
       if (wasStart) {
         unawaited(ref.read(audioServiceProvider).playTap());
         AppFeedback.lightImpactIfEnabled();
@@ -300,7 +318,28 @@ class _CenterContent extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    switch (displayPhase) {
+    // A bare `switch` swapped this content with zero transition — the
+    // target/result readout and its `OutcomeFlash` pill would vanish the
+    // instant the phase changed, reading as an abrupt cut rather than a
+    // deliberate state change (founder feedback round 2). `AnimatedSwitcher`
+    // is framework-owned (no manual `AnimationController` to leak/dispose)
+    // and its default `FadeTransition` is exactly the "just a bit" softening
+    // asked for — 200ms is short enough to still feel immediate, not sluggish.
+    // Keyed by `displayPhase` itself: distinct enum values (including
+    // `running` vs `finalBandRunning`, which build the same widget type)
+    // always get a fresh key and therefore a real cross-fade, while repeat
+    // builds within the same phase keep the same key and skip re-animating.
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 200),
+      child: KeyedSubtree(
+        key: ValueKey(displayPhase),
+        child: _contentFor(displayPhase),
+      ),
+    );
+  }
+
+  Widget _contentFor(RunPhase phase) {
+    switch (phase) {
       case RunPhase.armed:
         return const Text(
           'Tap below when you\'re ready.',
@@ -321,10 +360,18 @@ class _CenterContent extends ConsumerWidget {
         return const _LastChanceLine();
 
       case RunPhase.running:
-        return _RunningContent(target: state.target, elapsedNotifier: elapsedNotifier, finalBand: false);
+        return _RunningContent(
+          target: state.target,
+          elapsedNotifier: elapsedNotifier,
+          finalBand: false,
+        );
 
       case RunPhase.finalBandRunning:
-        return _RunningContent(target: state.target, elapsedNotifier: elapsedNotifier, finalBand: true);
+        return _RunningContent(
+          target: state.target,
+          elapsedNotifier: elapsedNotifier,
+          finalBand: true,
+        );
 
       case RunPhase.stopped:
         return _StoppedContent(state: state);
@@ -347,10 +394,12 @@ class _LastChanceLine extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final name = ref.watch(playerProfileProvider).maybeWhen(
-      data: (p) => p.isAnonymous ? null : p.name,
-      orElse: () => null,
-    );
+    final name = ref
+        .watch(playerProfileProvider)
+        .maybeWhen(
+          data: (p) => p.isAnonymous ? null : p.name,
+          orElse: () => null,
+        );
     return Text(
       name == null ? 'Last chance' : '$name, last chance',
       style: const TextStyle(
@@ -394,7 +443,9 @@ class _RunningContent extends StatelessWidget {
             fontSize: 10,
             fontWeight: FontWeight.w600,
             height: 1.1,
-            color: finalBand ? AppColors.red.withValues(alpha: 0.75) : AppColors.mute,
+            color: finalBand
+                ? AppColors.red.withValues(alpha: 0.75)
+                : AppColors.mute,
           ),
         ),
         const SizedBox(height: 4),
@@ -416,7 +467,11 @@ class _RunningContent extends StatelessWidget {
         // (product-architect: not worth the memory cost for a large,
         // rarely-changing element); this small, genuinely-60fps plate is.
         RepaintBoundary(
-          child: StopwatchPlate(filled: false, tint: tint, liveElapsed: elapsedNotifier),
+          child: StopwatchPlate(
+            filled: false,
+            tint: tint,
+            liveElapsed: elapsedNotifier,
+          ),
         ),
       ],
     );
@@ -462,7 +517,11 @@ class _StoppedContent extends StatelessWidget {
         ),
         const SizedBox(height: 10),
         RepaintBoundary(
-          child: StopwatchPlate(filled: true, tint: tint, staticValue: state.lastStopElapsed ?? Duration.zero),
+          child: StopwatchPlate(
+            filled: true,
+            tint: tint,
+            staticValue: state.lastStopElapsed ?? Duration.zero,
+          ),
         ),
         const SizedBox(height: 10),
         OutcomeFlash(state: state),
