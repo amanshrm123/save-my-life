@@ -56,6 +56,23 @@
                 <action android:name="android.intent.action.QUICKBOOT_POWERON" />
             </intent-filter>
         </receiver>
+        <!-- Restricted social share (architecture v5 §6): a dedicated
+             FileProvider for the outcome card PNG, scoped to its own
+             `share/` cache subdir only. Distinct from share_plus's own
+             bundled provider (different authority, different exposed
+             path) — squatting on share_plus's private authority would
+             break silently on a share_plus upgrade, so this app owns its
+             own instead. No storage permission is introduced; grants are
+             per-URI and per-target only (architecture §12 flag 6). -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.shareprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/share_file_paths" />
+        </provider>
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and
@@ -67,5 +84,13 @@
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
         </intent>
+        <!-- Restricted social share targets (architecture v5 §7) — Android
+             11+ package-visibility filtering means `resolveActivity`/
+             `setPackage` silently fail for undeclared packages without
+             these. Targeted declarations only; NOT QUERY_ALL_PACKAGES
+             (policy-restricted, not needed here). -->
+        <package android:name="com.instagram.android" />
+        <package android:name="com.facebook.katana" />
+        <package android:name="com.whatsapp" />
     </queries>
 </manifest>

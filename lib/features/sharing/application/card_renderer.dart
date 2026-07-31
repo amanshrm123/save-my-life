@@ -16,9 +16,20 @@ import 'package:path_provider/path_provider.dart';
 /// null (the screen is gone) this aborts cleanly with `null` rather than
 /// throwing. Callers are still responsible for their own `mounted` guards
 /// around the `await` (this class has no widget lifecycle of its own).
+///
+/// Writes to `<getTemporaryDirectory()>/share/share_card.png` (architecture
+/// v5 §6/§11), not the temp-dir root: `share_plus`'s own bundled
+/// `FileProvider` only exposes its private `share_plus/` cache subdir, so
+/// the new `SocialSharePlugin`'s dedicated `FileProvider` is scoped to this
+/// app-owned `share/` subdir instead of squatting on another plugin's
+/// authority. The single fixed filename is preserved (now inside `share/`)
+/// so cache files still never accumulate, and the "More…" `share_plus` path
+/// is unaffected — it takes a raw path and copies it into its own provider
+/// regardless of which directory that path lives in.
 class CardRenderer {
   const CardRenderer();
 
+  static const String _subDir = 'share';
   static const String _fileName = 'share_card.png';
 
   Future<File?> renderToFile(GlobalKey boundaryKey, {double pixelRatio = 3}) async {
@@ -35,8 +46,12 @@ class CardRenderer {
       if (byteData == null) return null;
 
       final Uint8List bytes = byteData.buffer.asUint8List();
-      final dir = await getTemporaryDirectory();
-      final file = File('${dir.path}/$_fileName');
+      final tempDir = await getTemporaryDirectory();
+      final shareDir = Directory('${tempDir.path}/$_subDir');
+      if (!await shareDir.exists()) {
+        await shareDir.create(recursive: true);
+      }
+      final file = File('${shareDir.path}/$_fileName');
       await file.writeAsBytes(bytes, flush: true);
       return file;
     } catch (_) {

@@ -8,7 +8,9 @@ import 'package:timing_tap/features/avatar/presentation/widgets/home_avatar_card
 import 'package:timing_tap/features/onboarding/state/onboarding_providers.dart';
 
 void main() {
-  testWidgets('AvatarPickerScreen renders, switches gender, selects, commits', (tester) async {
+  testWidgets('AvatarPickerScreen renders, switches gender, selects, commits', (
+    tester,
+  ) async {
     SharedPreferences.setMockInitialValues({});
     final service = await PreferencesService.create();
     await tester.pumpWidget(
@@ -35,21 +37,36 @@ void main() {
     await tester.pumpAndSettle();
   });
 
-  testWidgets('HomeAvatarCard renders zero-state (READY) and hint pill', (tester) async {
+  testWidgets('HomeAvatarCard renders zero-state (READY) and hint pill', (
+    tester,
+  ) async {
     // Mirrors the real Home call site exactly: `Expanded(child: Center(child:
     // HomeAvatarCard(...)))` inside a bounded-height Column, never a tight
     // fixed-size box directly around the card.
+    //
+    // A `ProviderScope` (with `preferencesServiceProvider` overridden) is
+    // required here since v2: `HomeAvatarCard` now watches
+    // `playerProfileProvider` to render the player's name (v2 §1).
+    SharedPreferences.setMockInitialValues({});
+    final service = await PreferencesService.create();
     await tester.pumpWidget(
-      const MaterialApp(
-        home: Scaffold(
-          body: Column(
-            children: [
-              Expanded(
-                child: Center(
-                  child: HomeAvatarCard(avatarId: -1, bestLifePercent: 0, onTap: _noop),
+      ProviderScope(
+        overrides: [preferencesServiceProvider.overrideWithValue(service)],
+        child: const MaterialApp(
+          home: Scaffold(
+            body: Column(
+              children: [
+                Expanded(
+                  child: Center(
+                    child: HomeAvatarCard(
+                      avatarId: -1,
+                      bestLifePercent: 0,
+                      onTap: _noop,
+                    ),
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -69,21 +86,30 @@ void main() {
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
 
+      SharedPreferences.setMockInitialValues({});
+      final service = await PreferencesService.create();
       await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: Column(
-              children: [
-                // Almost all vertical space consumed elsewhere, leaving the
-                // card's `Expanded` slot only ~40 logical px -- far less than
-                // its natural ~200dp.
-                const SizedBox(height: 500),
-                Expanded(
-                  child: Center(
-                    child: HomeAvatarCard(avatarId: 0, bestLifePercent: 45, onTap: _noop),
+        ProviderScope(
+          overrides: [preferencesServiceProvider.overrideWithValue(service)],
+          child: MaterialApp(
+            home: Scaffold(
+              body: Column(
+                children: [
+                  // Almost all vertical space consumed elsewhere, leaving the
+                  // card's `Expanded` slot only ~40 logical px -- far less
+                  // than its natural ~200dp.
+                  const SizedBox(height: 500),
+                  Expanded(
+                    child: Center(
+                      child: HomeAvatarCard(
+                        avatarId: 0,
+                        bestLifePercent: 45,
+                        onTap: _noop,
+                      ),
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),

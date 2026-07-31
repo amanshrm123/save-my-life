@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:io';
 
+import 'package:flutter/foundation.dart' show defaultTargetPlatform, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -7,6 +9,7 @@ import '../../../core/routing/app_page_transitions.dart';
 import '../../../core/routing/app_routes.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/sticker_button.dart';
+import '../../../core/widgets/toast_pill.dart';
 import '../../ads/application/ad_gate.dart';
 import '../../ads/application/ad_service.dart';
 import '../../ads/presentation/ad_failed_view.dart';
@@ -15,6 +18,8 @@ import '../../ads/state/ad_providers.dart';
 import '../../play_loop/domain/run_state.dart';
 import '../../play_loop/domain/run_summary.dart';
 import '../../play_loop/presentation/play_loop_screen.dart';
+import '../../sharing/domain/share_target.dart';
+import '../../sharing/presentation/share_target_sheet.dart';
 import '../../sharing/state/share_providers.dart';
 import '../domain/outcome_story_content.dart';
 import '../state/outcome_providers.dart';
@@ -76,7 +81,10 @@ class _OutcomeCardScreenState extends ConsumerState<OutcomeCardScreen>
       vsync: this,
       duration: const Duration(milliseconds: 260),
     );
-    _entrance = CurvedAnimation(parent: _entranceController, curve: Curves.easeOutBack);
+    _entrance = CurvedAnimation(
+      parent: _entranceController,
+      curve: Curves.easeOutBack,
+    );
     // `.forward()` deliberately NOT called here (architecture v4 §4/§8 risk
     // 3): left in `initState`, the card would animate in behind the loader
     // and be static by the time content resolves. It's triggered instead
@@ -101,6 +109,18 @@ class _OutcomeCardScreenState extends ConsumerState<OutcomeCardScreen>
     }
   }
 
+  /// Share flow (architecture v5 §4/§11/§12):
+  ///  - `CardRenderer.renderToFile` runs exactly once per Share tap, before
+  ///    anything else — the single-render invariant holds regardless of how
+  ///    many tiles the player tries from one open sheet, since the same
+  ///    [file] is reused for every tile tap inside `ShareTargetSheet`.
+  ///  - Web (`kIsWeb`) skips the sheet entirely and keeps today's direct
+  ///    `ShareService` path unchanged (architecture §4.1 — Android intents
+  ///    don't exist there, and Instagram has no usable web story-composer).
+  ///  - `_sharing` now also covers "sheet is open": it isn't cleared until
+  ///    `showShareTargetSheet` itself resolves (whenever/however the sheet
+  ///    closes), so a double-tap on Share while the sheet is up is a no-op
+  ///    rather than stacking a second sheet (architecture §12 flag 4).
   Future<void> _onShare() async {
     if (_sharing) return;
     _sharing = true;
@@ -109,13 +129,57 @@ class _OutcomeCardScreenState extends ConsumerState<OutcomeCardScreen>
       final file = await renderer.renderToFile(_cardKey);
       if (!mounted || file == null) return;
 
-      final shareService = ref.read(shareServiceProvider);
-      final success = await shareService.shareFile(file, text: _shareText);
-      if (!mounted || !success) return;
-      _showToast();
+      // The 3-tile sheet only makes sense on Android (it fires Android-only
+      // intents) — gate on the platform itself, not just `!kIsWeb`, so any
+      // other non-web target (none shipping today — iOS is deferred, no
+      // Apple ID) also honestly falls back to the plain share path instead
+      // of showing a sheet with all tiles permanently dimmed.
+      if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) {
+        await _shareViaMoreSheet(file);
+        return;
+      }
+
+      // Re-probed fresh on every Share tap (architecture §11) — install
+      // state can change between sessions, so this deliberately never
+      // reuses a stale result from an earlier sheet. Falls back to "all
+      // dimmed" on any unexpected error (e.g. a cast failure on the
+      // channel's return value) rather than letting it propagate and make
+      // the Share tap silently do nothing — `SocialShareService` already
+      // handles the expected PlatformException/MissingPluginException
+      // cases itself, so this only ever catches genuinely unexpected ones.
+      List<ShareTarget> installedTargets;
+      try {
+        installedTargets = await ref.read(installedTargetsProvider.future);
+      } catch (_) {
+        installedTargets = const <ShareTarget>[];
+      }
+      if (!mounted) return;
+
+      final action = await showShareTargetSheet(
+        context,
+        cardFile: file,
+        outcome: widget.summary.outcome,
+        installedTargets: installedTargets,
+      );
+      if (!mounted) return;
+
+      if (action == ShareSheetAction.more) {
+        await _shareViaMoreSheet(file);
+      }
     } finally {
       _sharing = false;
     }
+  }
+
+  /// The unchanged pre-existing path: real `share_plus` OS sheet, "✓ Shared"
+  /// toast only on a genuine `ShareResultStatus.success`. Reached either
+  /// directly on web, or via the sheet's "More…" link on Android
+  /// (architecture §4.1/§8 — completely unchanged either way).
+  Future<void> _shareViaMoreSheet(File file) async {
+    final shareService = ref.read(shareServiceProvider);
+    final success = await shareService.shareFile(file, text: _shareText);
+    if (!mounted || !success) return;
+    _showToast();
   }
 
   void _showToast() {
@@ -146,7 +210,9 @@ class _OutcomeCardScreenState extends ConsumerState<OutcomeCardScreen>
   }
 
   void _onHome() {
-    Navigator.of(context).popUntil((route) => route.settings.name == AppRoutes.home);
+    Navigator.of(
+      context,
+    ).popUntil((route) => route.settings.name == AppRoutes.home);
   }
 
   @override
@@ -157,7 +223,10 @@ class _OutcomeCardScreenState extends ConsumerState<OutcomeCardScreen>
     // Fires the entrance beat exactly once, the moment the loader resolves
     // (into either real content or the unreachable-by-construction error
     // branch) — never re-triggers on later rebuilds (share toast, etc.).
-    ref.listen<AsyncValue<OutcomeStoryContent>>(outcomeStoryProvider(summary), (previous, next) {
+    ref.listen<AsyncValue<OutcomeStoryContent>>(outcomeStoryProvider(summary), (
+      previous,
+      next,
+    ) {
       if (_entranceStarted) return;
       if (_isSettled(next)) {
         if (!mounted) return;
@@ -215,32 +284,58 @@ class _OutcomeCardScreenState extends ConsumerState<OutcomeCardScreen>
                       // (this pass's fix — previously the FadeTransition
                       // sat inside the boundary and Share became tappable
                       // the same frame the animation started).
-                      child: asyncContent.when(
-                        loading: () => OutcomeCardLoading(outcome: summary.outcome),
-                        data: (content) => _EntranceCard(
-                          entrance: _entrance,
-                          cardKey: _cardKey,
-                          child: OutcomeCard(
-                            outcome: summary.outcome,
-                            playerName: summary.playerName,
-                            content: content,
+                      //
+                      // `Center` here is load-bearing (P0 fix): `Expanded`
+                      // hands this subtree a TIGHT constraint (minHeight ==
+                      // maxHeight), and `OutcomeCardShell`'s `AspectRatio`
+                      // can only derive its own height from its width under
+                      // a LOOSE constraint — under a tight one,
+                      // `RenderAspectRatio` always falls back to the
+                      // incoming `minHeight` instead, silently ignoring the
+                      // ratio entirely. `Center` converts the tight
+                      // constraint into a loose one (0..maxHeight), letting
+                      // `AspectRatio` size itself for real.
+                      child: Center(
+                        child: asyncContent.when(
+                          // Wrapped in the same `kOutcomeCardShadowInset`
+                          // Padding the data/error branches get (via
+                          // `_EntranceCard`) so all three branches resolve
+                          // to the identical final box size — no
+                          // pop-on-resolve size jump. Deliberately NOT
+                          // wrapped in `_EntranceCard` itself: the loader
+                          // must render instantly at full opacity/scale,
+                          // with no `RepaintBoundary` capture concern.
+                          loading: () => Padding(
+                            padding: const EdgeInsets.all(
+                              kOutcomeCardShadowInset,
+                            ),
+                            child: OutcomeCardLoading(outcome: summary.outcome),
                           ),
-                        ),
-                        // Unreachable by construction: the service always
-                        // returns the N/A fallback rather than throwing
-                        // (architecture v4 §2) — mapped to the same N/A
-                        // card as defence-in-depth (architecture v4
-                        // §4/§6.3), never left to throw past the widget
-                        // tree. Share is correctly enabled here too (see
-                        // `shareEnabled` below) since a fully-rendered N/A
-                        // card is genuinely shareable, not a broken state.
-                        error: (error, stackTrace) => _EntranceCard(
-                          entrance: _entrance,
-                          cardKey: _cardKey,
-                          child: OutcomeCard(
-                            outcome: summary.outcome,
-                            playerName: summary.playerName,
-                            content: OutcomeStoryContent.naFor,
+                          data: (content) => _EntranceCard(
+                            entrance: _entrance,
+                            cardKey: _cardKey,
+                            child: OutcomeCard(
+                              outcome: summary.outcome,
+                              playerName: summary.playerName,
+                              content: content,
+                            ),
+                          ),
+                          // Unreachable by construction: the service always
+                          // returns the N/A fallback rather than throwing
+                          // (architecture v4 §2) — mapped to the same N/A
+                          // card as defence-in-depth (architecture v4
+                          // §4/§6.3), never left to throw past the widget
+                          // tree. Share is correctly enabled here too (see
+                          // `shareEnabled` below) since a fully-rendered N/A
+                          // card is genuinely shareable, not a broken state.
+                          error: (error, stackTrace) => _EntranceCard(
+                            entrance: _entrance,
+                            cardKey: _cardKey,
+                            child: OutcomeCard(
+                              outcome: summary.outcome,
+                              playerName: summary.playerName,
+                              content: OutcomeStoryContent.naFor,
+                            ),
                           ),
                         ),
                       ),
@@ -280,7 +375,12 @@ class _OutcomeCardScreenState extends ConsumerState<OutcomeCardScreen>
                   ],
                 ),
                 if (_toastVisible)
-                  Positioned(left: 14, right: 14, bottom: 62, child: const _ShareToast()),
+                  const Positioned(
+                    left: 14,
+                    right: 14,
+                    bottom: 62,
+                    child: ToastPill(text: '✓ Shared'),
+                  ),
               ],
             ),
           ),
@@ -292,11 +392,15 @@ class _OutcomeCardScreenState extends ConsumerState<OutcomeCardScreen>
   _ShareButtonStyle _shareButtonStyle(RunOutcome outcome) {
     switch (outcome) {
       case RunOutcome.death:
-        return const _ShareButtonStyle('Share →', AppColors.red, Colors.white);
+        return const _ShareButtonStyle('Share', AppColors.red, Colors.white);
       case RunOutcome.survived:
-        return const _ShareButtonStyle('Share →', AppColors.green, Colors.white);
+        return const _ShareButtonStyle('Share', AppColors.green, Colors.white);
       case RunOutcome.eternal:
-        return const _ShareButtonStyle('Flex it →', AppColors.gold, AppColors.ink);
+        return const _ShareButtonStyle(
+          'Flex it',
+          AppColors.gold,
+          AppColors.ink,
+        );
     }
   }
 }
@@ -314,7 +418,21 @@ class _ShareButtonStyle {
 /// Share-enabled gate so both treat "resolved data" and "resolved error"
 /// identically.
 bool _isSettled(AsyncValue<OutcomeStoryContent> value) =>
-    value is AsyncData<OutcomeStoryContent> || value is AsyncError<OutcomeStoryContent>;
+    value is AsyncData<OutcomeStoryContent> ||
+    value is AsyncError<OutcomeStoryContent>;
+
+/// Extra transparent inset applied around the card content so the card
+/// shell's soft drop-shadow (design v1 §2.1 — painted OUTSIDE the card's own
+/// rounded-rect bounds) isn't clipped out of the exported PNG: a bare
+/// `RepaintBoundary` rasterizes exactly its own tight box, which — with no
+/// inset — is exactly the card's own bounds and nothing more.
+///
+/// Shared by `_EntranceCard` (data/error branches) AND the `loading` branch
+/// in `_OutcomeCardScreenState.build` — all three `AsyncValue` branches must
+/// resolve to the exact same final box size (this file's own "nothing shifts
+/// on resolve" invariant, per `outcome_card_loading.dart`'s doc comment), so
+/// they all apply this one inset rather than each branch inventing its own.
+const double kOutcomeCardShadowInset = 32;
 
 /// The resolved (or N/A-fallback) card, entrance-animated in. The
 /// `RepaintBoundary` sits INSIDE the `FadeTransition`/`ScaleTransition` —
@@ -325,18 +443,15 @@ bool _isSettled(AsyncValue<OutcomeStoryContent> value) =>
 /// full-opacity, full-scale card, regardless of how far the entrance
 /// animation has actually progressed when the capture happens.
 class _EntranceCard extends StatelessWidget {
-  const _EntranceCard({required this.entrance, required this.cardKey, required this.child});
+  const _EntranceCard({
+    required this.entrance,
+    required this.cardKey,
+    required this.child,
+  });
 
   final Animation<double> entrance;
   final GlobalKey cardKey;
   final Widget child;
-
-  /// Extra transparent inset baked into the capture so the card shell's
-  /// soft drop-shadow (design v1 §2.1 — painted OUTSIDE the card's own
-  /// rounded-rect bounds) isn't clipped out of the exported PNG: a bare
-  /// `RepaintBoundary` rasterizes exactly its own tight box, which — with
-  /// no inset — is exactly the card's own bounds and nothing more.
-  static const double _shadowInset = 32;
 
   @override
   Widget build(BuildContext context) {
@@ -346,7 +461,10 @@ class _EntranceCard extends StatelessWidget {
         scale: Tween<double>(begin: 0.92, end: 1).animate(entrance),
         child: RepaintBoundary(
           key: cardKey,
-          child: Padding(padding: const EdgeInsets.all(_shadowInset), child: child),
+          child: Padding(
+            padding: const EdgeInsets.all(kOutcomeCardShadowInset),
+            child: child,
+          ),
         ),
       ),
     );
@@ -387,10 +505,10 @@ class _ActionsRow extends StatelessWidget {
             textColor: shareText,
             labelShadow: AppColors.ink,
             showLabelTextShadow: false,
-            height: 40,
-            borderRadius: 12,
-            restShadowOffset: 4,
-            fontSize: 13,
+            height: 44,
+            borderRadius: 14,
+            restShadowOffset: 5,
+            showTrailingArrow: true,
             enabled: shareEnabled,
             onPressed: onShare,
           ),
@@ -405,36 +523,13 @@ class _ActionsRow extends StatelessWidget {
             textColor: AppColors.ink,
             labelShadow: AppColors.ink,
             showLabelTextShadow: false,
-            height: 40,
-            borderRadius: 12,
-            restShadowOffset: 4,
-            fontSize: 13,
+            height: 44,
+            borderRadius: 14,
+            restShadowOffset: 5,
             onPressed: onAgain,
           ),
         ),
       ],
-    );
-  }
-}
-
-class _ShareToast extends StatelessWidget {
-  const _ShareToast();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-      decoration: BoxDecoration(color: AppColors.ink, borderRadius: BorderRadius.circular(12)),
-      child: const Text(
-        '✓ Shared',
-        textAlign: TextAlign.center,
-        style: TextStyle(
-          fontFamily: 'Fredoka',
-          fontSize: 11,
-          fontWeight: FontWeight.w600,
-          color: Colors.white,
-        ),
-      ),
     );
   }
 }
@@ -460,7 +555,8 @@ void _goToInterstitial(BuildContext context) {
   Navigator.of(context).pushReplacement(
     fadeSlideRoute(
       settings: const RouteSettings(name: '/ad/interstitial'),
-      builder: (innerContext) => InterstitialScreen(onDone: () => _goToPlay(innerContext)),
+      builder: (innerContext) =>
+          InterstitialScreen(onDone: () => _goToPlay(innerContext)),
     ),
   );
 }

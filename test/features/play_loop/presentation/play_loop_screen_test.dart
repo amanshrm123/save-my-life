@@ -10,6 +10,7 @@ import 'package:timing_tap/features/play_loop/presentation/countdown_view.dart';
 import 'package:timing_tap/features/play_loop/presentation/play_loop_screen.dart';
 import 'package:timing_tap/features/play_loop/presentation/widgets/pause_overlay.dart';
 import 'package:timing_tap/features/play_loop/presentation/widgets/primary_action_button.dart';
+import 'package:timing_tap/features/play_loop/presentation/widgets/stopwatch_plate.dart';
 import 'package:timing_tap/features/play_loop/state/play_loop_providers.dart';
 
 /// Widget-level coverage for `PlayLoopScreen` (architecture v2 §7/§9). The
@@ -284,6 +285,144 @@ void main() {
         expect(find.textContaining('off by'), findsNothing);
 
         await flushDwell(tester);
+      },
+    );
+  });
+
+  group('_CenterContent AnimatedSwitcher (founder feedback round 2 — a soft '
+      'cross-fade between phases instead of a bare cut)', () {
+    /// Directly mutates `RunController.state` (the same technique the
+    /// "Stopped" status-label group above already uses) to force phase
+    /// transitions back-to-back, faster than the 200ms fade — this is the
+    /// only way to reliably land inside an in-flight `AnimatedSwitcher`
+    /// transition from a test, since the real `minStopElapsedMs` guard makes
+    /// a genuine double-tap-driven armed->running->stopped sequence
+    /// physically unable to complete that fast.
+    ///
+    /// Bypassing `_resolveStop`/`arm()` this way leaves two real (fake-clock)
+    /// timers dangling that `flutter_test` asserts against at teardown: the
+    /// screen's own 600ms post-stop dwell `Future.delayed`
+    /// (`_PlayLoopScreenState._onStopped`) and the controller's
+    /// `_scheduleAutoMiss` timer armed by `startRunning()`. This always calls
+    /// `arm()` (which cancels the auto-miss timer) then flushes the dwell
+    /// delay before the test ends, regardless of which phase the test itself
+    /// left the controller in.
+    Future<void> cleanUpDanglingTimers(WidgetTester tester, RunController controller) async {
+      if (controller.state.phase != RunPhase.stopped) {
+        controller.state = controller.state.copyWith(
+          phase: RunPhase.stopped,
+          lastTier: StopTier.perfect,
+          lastStopElapsed: controller.state.target,
+        );
+        await tester.pump();
+      }
+      controller.arm();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 700));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets(
+      'phase changes faster than the 200ms fade never throw and always '
+      'settle showing exactly one live content widget, never a stuck overlap '
+      'of two phases\' content',
+      (tester) async {
+        final svc = await service();
+        await tester.pumpWidget(app(svc));
+        await pumpPastCountdown(tester);
+
+        final container = ProviderScope.containerOf(
+          tester.element(find.byType(PlayLoopScreen)),
+        );
+        final controller = container.read(runControllerProvider.notifier);
+
+        // armed -> running: starts the first cross-fade.
+        controller.startRunning();
+        await tester.pump();
+        // Only 20ms into the 200ms fade — deliberately mid-transition.
+        await tester.pump(const Duration(milliseconds: 20));
+
+        // running -> stopped, preempting the still-in-flight armed->running
+        // fade before it ever finished. `AnimatedSwitcher` must cleanly
+        // abandon the outgoing armed fade and start a new one toward this
+        // newest child rather than getting confused about which child is
+        // "current".
+        controller.state = controller.state.copyWith(
+          phase: RunPhase.stopped,
+          lastTier: StopTier.perfect,
+          lastStopElapsed: controller.state.target,
+        );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 20));
+
+        // stopped -> armed again (re-arm) via the real `arm()` entry point,
+        // once more before the previous fade has settled — also doubles as
+        // this test's timer cleanup (see `cleanUpDanglingTimers`).
+        controller.arm();
+        await tester.pump();
+
+        expect(tester.takeException(), isNull, reason: 'no exception through a chain of interrupted fades');
+
+        // Let every in-flight AnimatedSwitcher animation fully settle.
+        await tester.pumpAndSettle();
+
+        expect(tester.takeException(), isNull);
+        // Final phase is `armed`: exactly the armed teaching line shows, with
+        // no leftover `StopwatchPlate`/flash content from the intermediate
+        // `stopped` frame still hanging around post-settle.
+        expect(find.text('Tap below when you\'re ready.'), findsOneWidget);
+        expect(find.byType(StopwatchPlate), findsNothing);
+
+        // Flush the still-pending 600ms post-stop dwell Future so no timer
+        // leaks past this test (`advanceAfterDwell` itself no-ops here since
+        // `_pending` was never set — this bypassed `_resolveStop` entirely).
+        await tester.pump(const Duration(milliseconds: 700));
+        await tester.pumpAndSettle();
+      },
+    );
+
+    testWidgets(
+      'running and finalBandRunning are distinct AnimatedSwitcher keys (both '
+      'build the same StopwatchPlate widget type) — verifies a same-type, '
+      'different-phase transition still cross-fades rather than being '
+      'mistaken for "no change" and skipped',
+      (tester) async {
+        final svc = await service();
+        await tester.pumpWidget(app(svc));
+        await pumpPastCountdown(tester);
+
+        final container = ProviderScope.containerOf(
+          tester.element(find.byType(PlayLoopScreen)),
+        );
+        final controller = container.read(runControllerProvider.notifier);
+        controller.startRunning();
+        await tester.pump();
+        // Deliberately not `pumpAndSettle()` here: a live phase keeps a real
+        // `Ticker` running (by design — it drives the 60fps elapsed digits),
+        // which schedules a new frame every engine tick and would make
+        // `pumpAndSettle` spin forever waiting for "no more frames".
+        await tester.pump(const Duration(milliseconds: 250));
+
+        expect(find.text('Running…'), findsOneWidget);
+
+        // Force straight into finalBandRunning without a real stop — this is
+        // the exact "same widget type, different enum value" case the
+        // `ValueKey(displayPhase)` doc comment calls out explicitly.
+        controller.state = controller.state.copyWith(phase: RunPhase.finalBandRunning);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 20));
+
+        expect(tester.takeException(), isNull);
+        // Same reason as above: still live, so pump a fixed duration well
+        // past the 200ms fade instead of `pumpAndSettle`.
+        await tester.pump(const Duration(milliseconds: 250));
+        expect(tester.takeException(), isNull);
+
+        // Only one StopwatchPlate ever visible at once, even mid-cross-fade
+        // and after settling.
+        expect(find.byType(StopwatchPlate), findsOneWidget);
+
+        await cleanUpDanglingTimers(tester, controller);
       },
     );
   });

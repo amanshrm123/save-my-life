@@ -12,7 +12,7 @@ class RunConfig {
     this.hitBandMs = 180,
     this.finalBandThresholdPercent = 5,
     this.targetMinMs = 2000,
-    this.targetMaxMs = 6000,
+    this.targetMaxMs = 4900,
     this.eternalPerfectCount = 3,
     this.countdownSteps = 3,
     this.countdownStepMs = 700,
@@ -38,8 +38,10 @@ class RunConfig {
   final int finalBandThresholdPercent;
 
   /// Target range is `[targetMinMs, targetMaxMs]` inclusive, in
-  /// milliseconds — `2.00s`-`6.00s` (founder-resolved, re-resolved after
-  /// the `MM:SS`/0-5min range proved boring in practice).
+  /// milliseconds — `2.00s`-`4.90s` (founder-resolved, re-resolved after
+  /// the `MM:SS`/0-5min range proved boring in practice; capped below
+  /// `5.00s` so the `SS:CC` display never reads like it rolled into a
+  /// 6th second).
   final int targetMinMs;
   final int targetMaxMs;
 

@@ -171,8 +171,8 @@ void main() {
       await forceEndDeath(tester);
       expect(find.byType(OutcomeCardScreen), findsOneWidget);
 
-      await tester.tap(find.widgetWithText(StickerButton, 'Share →'));
-      await tester.tap(find.widgetWithText(StickerButton, 'Share →'), warnIfMissed: false);
+      await tester.tap(find.widgetWithText(StickerButton, 'Share'));
+      await tester.tap(find.widgetWithText(StickerButton, 'Share'), warnIfMissed: false);
       await tester.pumpAndSettle();
 
       // `renderToFile`/`share_plus` platform channels aren't available under

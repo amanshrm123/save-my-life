@@ -61,6 +61,12 @@ class AppColors {
   /// Eternal outcome-cardbox's catalog-line + `stayalive.app` mark color
   /// (design v3 §1.2) — overrides the default tier color on the solid-gold
   /// fill (dark/low-saturation, matching the ARM plate's contrast rule).
+  ///
+  /// Retired from the story-card's name-span role by design v1 Revision 2
+  /// §R2.4: post-0.85-alpha-blend contrast for that role measured only
+  /// ~3.5:1 (below AA), which [eternalNameSpan] fixes. Left defined and
+  /// unused here, not deleted, per this file's "don't repurpose/collapse a
+  /// named token" convention — it may still gain a future non-name-span use.
   static const Color eternalNo = Color(0xFF8A5A00);
 
   /// Ad-chrome palette (design v3 §1.4) — deliberately off-palette, used
@@ -97,6 +103,14 @@ class AppColors {
   /// Survived card's chip fill (design v1 §1.1/§4.2).
   static const Color surviveChipBg = Color(0xFFD3F2E1);
 
+  /// Survived story-card's name-span color (design v1 Revision 2 §R2.4) — a
+  /// deep, fully-saturated pine/emerald, dedicated to this one role. Replaces
+  /// the previously-reused [greenDark] there: post-0.85-alpha-blend against
+  /// [surviveCardBg], `greenDark` only measured ~2.7:1 (below even AA-large's
+  /// 3:1); this token measures ~5.3:1. `greenDark` keeps its existing
+  /// chip-text/wordmark-accent roles unchanged.
+  static const Color surviveNameSpan = Color(0xFF065C31);
+
   /// Eternal card's base ink/text color AND chip fill (design v1 §1.1/§4.3 —
   /// the chip is intentionally the same dark-brown as the base ink, an
   /// inversion so the chip "pops dark" against the light gradient). Also
@@ -115,6 +129,15 @@ class AppColors {
   /// `.color`) code-shape change.
   static const Color eternalGradientStart = Color(0xFFFFF2D4);
   static const Color eternalGradientEnd = Color(0xFFFFE0A8);
+
+  /// Eternal story-card's name-span color (design v1 Revision 2 §R2.4) — a
+  /// deep ruby/garnet, dedicated to this one role. Replaces the previously
+  /// reused [eternalNo] there: post-0.85-alpha-blend against the gradient's
+  /// darker stop ([eternalGradientEnd]), `eternalNo` only measured ~3.5:1
+  /// (below AA); this token measures ~5.2:1 against the darker stop and
+  /// ~5.8:1 against the lighter stop ([eternalGradientStart]). `eternalInk`/
+  /// `eternalBrandAccent`/chip fill are all unaffected.
+  static const Color eternalNameSpan = Color(0xFF8B1E3F);
 }
 
 /// Fredoka text styles used across screens 1.1-1.5 (design spec v1 §1.2).

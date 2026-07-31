@@ -1,3 +1,4 @@
+import 'dart:math' show pi;
 import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
@@ -27,6 +28,7 @@ class StickerButton extends StatefulWidget {
     this.textColor = Colors.white,
     this.showLabelTextShadow = true,
     this.fontSize,
+    this.showTrailingArrow = false,
   });
 
   final String label;
@@ -51,6 +53,13 @@ class StickerButton extends StatefulWidget {
   /// Overrides `AppTypography.buttonLabel`'s 14dp default when a caller
   /// needs a distinct size (e.g. the pause modal's `.ghostbtn`, 13dp).
   final double? fontSize;
+
+  /// Opt-in slot (design v1 Revision 2 §R2.3) — appends a rotated "→"
+  /// glyph after [label], separated by a fixed 6dp gap, sharing the
+  /// label's color/font (but never its text-shadow — see [_buildLabel]).
+  /// Defaults to `false` so every other existing call site is unaffected.
+  /// Used by the Outcome Card Share button only, today.
+  final bool showTrailingArrow;
 
   @override
   State<StickerButton> createState() => _StickerButtonState();
@@ -90,6 +99,41 @@ class _StickerButtonState extends State<StickerButton>
     _controller.animateTo(0, duration: const Duration(milliseconds: 130), curve: Curves.easeOutBack);
   }
 
+  /// The button's text content — a bare centered [Text] by default, or (when
+  /// [StickerButton.showTrailingArrow] is set) a [Row] with the label
+  /// followed by a 6dp gap and a "→" rotated -60° (`-pi/3`, design v1
+  /// Revision 2 §R2.3) to tilt it up-and-to-the-right. The arrow shares the
+  /// label's color/font, but never its `shadows:` — a straight-down text
+  /// shadow rotates along with `Transform.rotate`, which would visibly
+  /// mismatch the label's own un-rotated shadow, so the arrow is always
+  /// built shadow-free regardless of [StickerButton.showLabelTextShadow].
+  Widget _buildLabel() {
+    final baseStyle = AppTypography.buttonLabel.copyWith(
+      color: widget.textColor,
+      fontSize: widget.fontSize,
+    );
+    final labelStyle = baseStyle.copyWith(
+      shadows: widget.showLabelTextShadow
+          ? [
+              Shadow(color: widget.labelShadow, offset: const Offset(0, 1.5), blurRadius: 0),
+            ]
+          : null,
+    );
+
+    if (!widget.showTrailingArrow) {
+      return Text(widget.label, style: labelStyle);
+    }
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(widget.label, style: labelStyle),
+        const SizedBox(width: 6),
+        Transform.rotate(angle: -pi / 3, child: Text('→', style: baseStyle)),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final content = AnimatedBuilder(
@@ -123,22 +167,7 @@ class _StickerButtonState extends State<StickerButton>
                 ],
               ),
               alignment: Alignment.center,
-              child: Text(
-                widget.label,
-                style: AppTypography.buttonLabel.copyWith(
-                  color: widget.textColor,
-                  fontSize: widget.fontSize,
-                  shadows: widget.showLabelTextShadow
-                      ? [
-                          Shadow(
-                            color: widget.labelShadow,
-                            offset: const Offset(0, 1.5),
-                            blurRadius: 0,
-                          ),
-                        ]
-                      : null,
-                ),
-              ),
+              child: _buildLabel(),
             ),
           ),
         );

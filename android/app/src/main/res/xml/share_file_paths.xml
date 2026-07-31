@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Restricted social share (architecture v5 §6) — exposes ONLY the
+     app-owned `<cache>/share/` subdir CardRenderer writes to, nothing else
+     in the app's cache/files directories. -->
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <cache-path name="share" path="share/" />
+</paths>
