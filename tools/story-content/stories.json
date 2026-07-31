@@ -1,0 +1,136 @@
+{
+  "schemaVersion": 1,
+  "contentVersion": 2,
+  "updatedAt": "2026-07-31T14:45:00Z",
+  "tiers": {
+    "death": {
+      "icons": ["⏰️", "😵", "💀", "🪦", "⚰️", "💥"],
+      "beats": [
+        {
+          "id": "death_001",
+          "headline": "Blinked. Gone.",
+          "named": "{name} blinked at the exact wrong moment.",
+          "anonymous": "Blinked at the exact wrong moment."
+        },
+        {
+          "id": "death_002",
+          "headline": "A gut feeling lied.",
+          "named": "{name} trusted a gut feeling that lied.",
+          "anonymous": "Trusted a gut feeling that lied."
+        },
+        {
+          "id": "death_003",
+          "headline": "One heartbeat too soon.",
+          "named": "{name} flinched a heartbeat too soon.",
+          "anonymous": "Flinched a heartbeat too soon."
+        }
+      ]
+    },
+    "survived": {
+      "icons": ["😮‍💨", "🆘", "🫀", "🙏", "😅"],
+      "beats": [
+        {
+          "id": "survived_001",
+          "headline": "Saved at {min}%.",
+          "named": "{name} found the exact instant with nothing left to spare.",
+          "anonymous": "Found the exact instant with nothing left to spare."
+        },
+        {
+          "id": "survived_002",
+          "headline": "Out of nowhere.",
+          "named": "{name} pulled the perfect tap out of nowhere.",
+          "anonymous": "Pulled the perfect tap out of nowhere."
+        },
+        {
+          "id": "survived_003",
+          "headline": "Read it cold.",
+          "named": "{name} read the clock like it was standing still.",
+          "anonymous": "Read the clock like it was standing still."
+        },
+        {
+          "id": "survived_004",
+          "headline": "Landed the one that mattered.",
+          "named": "{name} landed the one stop that mattered.",
+          "anonymous": "Landed the one stop that mattered."
+        },
+        {
+          "id": "survived_005",
+          "headline": "Panic, then a clean hit.",
+          "named": "{name} turned panic into a clean hit.",
+          "anonymous": "Turned panic into a clean hit."
+        },
+        {
+          "id": "survived_006",
+          "headline": "Didn't blink at sudden death.",
+          "named": "{name} stared down sudden death and didn't blink.",
+          "anonymous": "Stared down sudden death and didn't blink."
+        },
+        {
+          "id": "survived_007",
+          "headline": "Calm, at {min}%.",
+          "named": "{name} found calm in the last possible heartbeat.",
+          "anonymous": "Found calm in the last possible heartbeat."
+        },
+        {
+          "id": "survived_008",
+          "headline": "Clutched when it counted.",
+          "named": "{name} clutched it when it counted most.",
+          "anonymous": "Clutched it when it counted most."
+        },
+        {
+          "id": "survived_009",
+          "headline": "Proved the final band wrong.",
+          "named": "{name} proved the final band wrong.",
+          "anonymous": "Proved the final band wrong."
+        },
+        {
+          "id": "survived_010",
+          "headline": "Stuck the landing.",
+          "named": "{name} walked the tightrope and stuck the landing.",
+          "anonymous": "Walked the tightrope and stuck the landing."
+        }
+      ]
+    },
+    "eternal": {
+      "icons": ["✨", "👑", "🏆", "🌟"],
+      "beats": [
+        {
+          "id": "eternal_001",
+          "headline": "Never wobbled once.",
+          "named": "{name} never even wobbled.",
+          "anonymous": "Never even wobbled."
+        },
+        {
+          "id": "eternal_002",
+          "headline": "Read the clock's mind.",
+          "named": "{name} read the clock like a mind reader.",
+          "anonymous": "Read the clock like a mind reader."
+        },
+        {
+          "id": "eternal_003",
+          "headline": "Three taps of pure art.",
+          "named": "{name} turned the first three taps into art.",
+          "anonymous": "Turned the first three taps into art."
+        },
+        {
+          "id": "eternal_004",
+          "headline": "Made perfect look boring.",
+          "named": "{name} made perfect look boring.",
+          "anonymous": "Made perfect look boring."
+        },
+        {
+          "id": "eternal_005",
+          "headline": "No warm-up needed.",
+          "named": "{name} didn't need a warm-up.",
+          "anonymous": "Didn't need a warm-up."
+        },
+        {
+          "id": "eternal_006",
+          "headline": "Beat the clock before it knew.",
+          "named": "{name} beat the clock before it knew it was a fight.",
+          "anonymous": "Beat the clock before it knew it was a fight."
+        }
+      ]
+    }
+  }
+}

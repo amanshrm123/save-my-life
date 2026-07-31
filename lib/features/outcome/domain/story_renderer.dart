@@ -30,6 +30,7 @@ class StoryRenderer {
         .replaceAll('{peak}', '$peakLifePercent');
 
     return StoryBeat(
+      id: beat.id,
       headline: substitute(beat.headline),
       named: substitute(beat.named),
       anonymous: substitute(beat.anonymous),

@@ -44,6 +44,7 @@ dependencies:
   timezone: ^0.11.1
   audioplayers: ^6.8.1
   flutter_timezone: ^5.1.0
+  http: ^1.5.0
 
 dev_dependencies:
   flutter_test:
@@ -75,6 +76,7 @@ flutter:
 
   assets:
     - assets/sfx/
+    - assets/stories_bundled.json
 
   # To add assets to your application, add an assets section, like this:
   # assets:

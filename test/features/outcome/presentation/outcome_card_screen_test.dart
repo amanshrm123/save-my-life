@@ -4,7 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:timing_tap/core/persistence/preferences_service.dart';
 import 'package:timing_tap/core/widgets/sticker_button.dart';
+import 'package:timing_tap/features/onboarding/state/onboarding_providers.dart'
+    show preferencesServiceProvider;
 import 'package:timing_tap/features/outcome/application/outcome_story_service.dart';
 import 'package:timing_tap/features/outcome/domain/outcome_story_content.dart';
 import 'package:timing_tap/features/outcome/presentation/outcome_card_screen.dart';
@@ -34,6 +38,25 @@ import 'package:timing_tap/features/play_loop/domain/run_summary.dart';
 /// `OutcomeCardLoading`) or compare *relative nesting order* rather than
 /// raw counts, to stay robust to that ambient framework structure.
 void main() {
+  // Remote-story-config-implementation-spec: `outcomeStoryServiceProvider`'s
+  // default is now `RemoteOutcomeStoryService`, which transitively watches
+  // `preferencesServiceProvider` (via `storyPoolRepositoryProvider`/
+  // `storyCycleStoreProvider`) even for tests that never override the
+  // service itself. Without a working override, reading it throws
+  // `UnimplementedError` at provider-construction time, which used to
+  // manifest here as an immediately-settled `AsyncError` (indistinguishable
+  // from a real resolve, since Share-gating treats both as "settled") well
+  // before any of this file's timing assertions became meaningful. One
+  // shared mock-backed instance for the whole file is enough — none of
+  // these tests inspect prefs content, they only need the provider chain to
+  // actually run.
+  late PreferencesService prefs;
+
+  setUpAll(() async {
+    SharedPreferences.setMockInitialValues({});
+    prefs = await PreferencesService.create();
+  });
+
   RunSummary summary() {
     return RunSummary(
       outcome: RunOutcome.death,
@@ -52,7 +75,10 @@ void main() {
     Duration? Function(int retryCount, Object error)? retry,
   }) {
     return ProviderScope(
-      overrides: overrides,
+      overrides: [
+        preferencesServiceProvider.overrideWithValue(prefs),
+        ...overrides,
+      ],
       retry: retry,
       child: MaterialApp(home: OutcomeCardScreen(summary: s)),
     );
@@ -63,28 +89,37 @@ void main() {
     // 'Flex it' — this suite only exercises Death, so match on whichever
     // of the two `_ActionsRow` buttons is NOT 'Again', making it robust to
     // either label without hard-coding it.
-    final buttons = tester.widgetList<StickerButton>(find.byType(StickerButton)).toList();
+    final buttons = tester
+        .widgetList<StickerButton>(find.byType(StickerButton))
+        .toList();
     return buttons.firstWhere((b) => b.label != 'Again');
   }
 
-  /// Flushes the provider's internal 2-second `Future.delayed` `Timer` so a
-  /// test that deliberately never lets the overall `Future.wait` resolve
-  /// (e.g. via a never-completing fake service) doesn't leave a real
-  /// (fake-clock) `Timer` pending at test teardown, which `flutter_test`'s
-  /// `AutomatedTestWidgetsFlutterBinding` asserts against. The min-2s Timer
-  /// fires and clears itself well before this; the overall `AsyncValue`
-  /// correctly stays `loading` forever regardless, since `Future.wait`
-  /// still awaits the other (never-completing) future.
+  /// Flushes the provider's internal `kMinStoryLoadDuration` (1200ms)
+  /// `Future.delayed` `Timer` so a test that deliberately never lets the
+  /// overall `Future.wait` resolve (e.g. via a never-completing fake
+  /// service) doesn't leave a real (fake-clock) `Timer` pending at test
+  /// teardown, which `flutter_test`'s `AutomatedTestWidgetsFlutterBinding`
+  /// asserts against. The floor's `Timer` fires and clears itself well
+  /// before this; the overall `AsyncValue` correctly stays `loading`
+  /// forever regardless, since `Future.wait` still awaits the other
+  /// (never-completing) future.
   Future<void> flushMinDurationTimer(WidgetTester tester) {
     return tester.pump(const Duration(seconds: 3));
   }
 
-  testWidgets('Share is disabled while the card is still loading', (tester) async {
+  testWidgets('Share is disabled while the card is still loading', (
+    tester,
+  ) async {
     final s = summary();
     await tester.pumpWidget(
       harness(
         s,
-        overrides: [outcomeStoryServiceProvider.overrideWithValue(_NeverCompletingService())],
+        overrides: [
+          outcomeStoryServiceProvider.overrideWithValue(
+            _NeverCompletingService(),
+          ),
+        ],
       ),
     );
     await tester.pump();
@@ -103,12 +138,18 @@ void main() {
       await tester.pumpWidget(
         harness(
           s,
-          overrides: [outcomeStoryServiceProvider.overrideWithValue(_NeverCompletingService())],
+          overrides: [
+            outcomeStoryServiceProvider.overrideWithValue(
+              _NeverCompletingService(),
+            ),
+          ],
         ),
       );
       await tester.pump();
 
-      final again = tester.widget<StickerButton>(find.widgetWithText(StickerButton, 'Again'));
+      final again = tester.widget<StickerButton>(
+        find.widgetWithText(StickerButton, 'Again'),
+      );
       expect(again.enabled, isTrue);
 
       await flushMinDurationTimer(tester);
@@ -119,11 +160,16 @@ void main() {
     tester,
   ) async {
     final s = summary();
-    // Real LocalOutcomeStoryService + the real 2s provider floor.
+    // Real RemoteOutcomeStoryService (resolving off the bundled asset, no
+    // network) + the real kMinStoryLoadDuration (1200ms) provider floor.
     await tester.pumpWidget(harness(s));
     await tester.pump(const Duration(milliseconds: 500));
 
-    expect(findShareButton(tester).enabled, isFalse, reason: 'still short of the 2s floor');
+    expect(
+      findShareButton(tester).enabled,
+      isFalse,
+      reason: 'still short of the floor',
+    );
 
     await tester.pump(const Duration(seconds: 2));
     await tester.pump(const Duration(milliseconds: 100));
@@ -161,11 +207,16 @@ void main() {
       await tester.pump();
 
       expect(find.byType(OutcomeCardLoading), findsNothing);
-      expect(find.byType(OutcomeCard), findsOneWidget, reason: 'the N/A card renders on AsyncError');
+      expect(
+        find.byType(OutcomeCard),
+        findsOneWidget,
+        reason: 'the N/A card renders on AsyncError',
+      );
       expect(
         findShareButton(tester).enabled,
         isTrue,
-        reason: 'AsyncError must be treated as "settled" for Share-gating, exactly like AsyncData',
+        reason:
+            'AsyncError must be treated as "settled" for Share-gating, exactly like AsyncData',
       );
     },
   );
@@ -208,20 +259,34 @@ void main() {
       final scaleIndex = ancestorTypes.indexOf(ScaleTransition);
       final fadeIndex = ancestorTypes.indexOf(FadeTransition);
 
-      expect(repaintIndex, greaterThanOrEqualTo(0), reason: 'no RepaintBoundary ancestor found at all');
-      expect(scaleIndex, greaterThanOrEqualTo(0), reason: 'no ScaleTransition ancestor found at all');
-      expect(fadeIndex, greaterThanOrEqualTo(0), reason: 'no FadeTransition ancestor found at all');
+      expect(
+        repaintIndex,
+        greaterThanOrEqualTo(0),
+        reason: 'no RepaintBoundary ancestor found at all',
+      );
+      expect(
+        scaleIndex,
+        greaterThanOrEqualTo(0),
+        reason: 'no ScaleTransition ancestor found at all',
+      );
+      expect(
+        fadeIndex,
+        greaterThanOrEqualTo(0),
+        reason: 'no FadeTransition ancestor found at all',
+      );
 
       expect(
         repaintIndex,
         lessThan(scaleIndex),
-        reason: 'RepaintBoundary must be nearer to OutcomeCard than ScaleTransition (i.e. a '
+        reason:
+            'RepaintBoundary must be nearer to OutcomeCard than ScaleTransition (i.e. a '
             'descendant of it), not the reverse',
       );
       expect(
         scaleIndex,
         lessThan(fadeIndex),
-        reason: 'ScaleTransition must be nearer to OutcomeCard than FadeTransition, matching the '
+        reason:
+            'ScaleTransition must be nearer to OutcomeCard than FadeTransition, matching the '
             'exact FadeTransition > ScaleTransition > RepaintBoundary > ...content nesting order '
             '_EntranceCard builds',
       );
@@ -237,14 +302,21 @@ void main() {
       await tester.pumpWidget(
         harness(
           s,
-          overrides: [outcomeStoryServiceProvider.overrideWithValue(_NeverCompletingService())],
+          overrides: [
+            outcomeStoryServiceProvider.overrideWithValue(
+              _NeverCompletingService(),
+            ),
+          ],
         ),
       );
       await tester.pump();
 
       expect(find.byType(OutcomeCardLoading), findsOneWidget);
       expect(
-        find.ancestor(of: find.byType(OutcomeCardLoading), matching: find.byType(ScaleTransition)),
+        find.ancestor(
+          of: find.byType(OutcomeCardLoading),
+          matching: find.byType(ScaleTransition),
+        ),
         findsNothing,
       );
 
@@ -294,8 +366,10 @@ void main() {
 }
 
 class _NeverCompletingService implements OutcomeStoryService {
-  final Completer<OutcomeStoryContent> _completer = Completer<OutcomeStoryContent>();
+  final Completer<OutcomeStoryContent> _completer =
+      Completer<OutcomeStoryContent>();
 
   @override
-  Future<OutcomeStoryContent> fetchStory(RunSummary summary) => _completer.future;
+  Future<OutcomeStoryContent> fetchStory(RunSummary summary) =>
+      _completer.future;
 }

@@ -1,12 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:timing_tap/core/theme/app_theme.dart';
-import 'package:timing_tap/features/outcome/domain/death_beats.dart';
-import 'package:timing_tap/features/outcome/domain/eternal_beats.dart';
 import 'package:timing_tap/features/outcome/domain/outcome_story_content.dart';
 import 'package:timing_tap/features/outcome/domain/story_beat.dart';
-import 'package:timing_tap/features/outcome/domain/story_icons.dart';
-import 'package:timing_tap/features/outcome/domain/survived_beats.dart';
+import 'package:timing_tap/features/outcome/domain/story_pool.dart';
+import 'package:timing_tap/features/outcome/domain/story_pool_codec.dart';
 import 'package:timing_tap/features/outcome/presentation/widgets/card_footer.dart';
 import 'package:timing_tap/features/outcome/presentation/widgets/outcome_card.dart';
 import 'package:timing_tap/features/outcome/presentation/widgets/outcome_card_shell.dart';
@@ -26,7 +25,24 @@ import 'package:timing_tap/features/play_loop/domain/run_state.dart';
 ///
 /// Generic happy-path rendering is intentionally NOT re-litigated here in
 /// detail — these tests target the specific regressions above.
-void main() {
+///
+/// (remote-story-config-implementation-spec §9.6): the "longest content per
+/// tier" fixtures below now source from the parsed bundled asset
+/// (`StoryPoolCodec.decode` against `assets/stories_bundled.json`) instead
+/// of the deleted `death_beats.dart`/`survived_beats.dart`/`eternal_beats.dart`
+/// Dart lists — `main()` is `async` so the asset can be awaited once, before
+/// any `group`/`testWidgets` registration below runs.
+void main() async {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  final raw = await rootBundle.loadString('assets/stories_bundled.json');
+  final StoryPool pool = StoryPoolCodec.decode(raw);
+  final deathBeats = pool.death.beats;
+  final survivedBeats = pool.survived.beats;
+  final eternalBeats = pool.eternal.beats;
+  final deathIcons = pool.death.icons;
+  final survivedIcons = pool.survived.icons;
+  final eternalIcons = pool.eternal.icons;
+
   /// Wraps [child] the way `OutcomeCardShell`'s own `builder` callback is
   /// always used in production: inside a bounded box (so `AspectRatio`/
   /// `LayoutBuilder` can resolve `k`), inside a `MaterialApp` for `Directionality`
@@ -138,9 +154,9 @@ void main() {
 
   group('REGRESSION: layout overflow — longest pooled content per tier, at '
       'k~1, default AND inflated ambient text scale', () {
-    // The exact longest entries in each pool (by combined headline+named
-    // length), found by direct inspection of death_beats.dart /
-    // survived_beats.dart / eternal_beats.dart — the fix pass found this
+    // The exact longest entries in each tier (by combined headline+named
+    // length), found by direct inspection of the pooled content (now
+    // `assets/stories_bundled.json`, parsed above) — the fix pass found this
     // was a probabilistic/content-length-dependent failure, so generic
     // short test copy would not have caught it.
     final longestDeath = deathBeats.firstWhere(
