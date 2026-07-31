@@ -22,8 +22,10 @@ import 'package:timing_tap/features/play_loop/state/play_loop_providers.dart';
 /// A `MockClient` that answers every request with an immediate 404 and no
 /// real network I/O. Used as the default `httpClientProvider` override for
 /// every integration test (see [realApp]) so pumping the real app — which
-/// warms up the story pool from `SplashScreen` — never dials out to the
-/// placeholder `kStoryConfigUrl`. A 404 cleanly exercises
+/// warms up the story pool from `SplashScreen` — never dials out to
+/// `kStoryConfigUrl` (a genuine live endpoint as of 2026-07-31, so this
+/// guard now matters more than ever — without it, tests would make real
+/// outbound HTTPS calls). A 404 cleanly exercises
 /// `StoryPoolRepository.refreshIfStale`'s "fetch failed, fall through to the
 /// cached/bundled pool" path without any DNS/HTTPS round trip or "Timer is
 /// still pending" teardown flake risk.

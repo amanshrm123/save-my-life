@@ -1,0 +1,7 @@
+name = "soft-waterfall-3e3e"
+main = "src/index.js"
+compatibility_date = "2026-07-31"
+
+[assets]
+directory = "public"
+binding = "ASSETS"

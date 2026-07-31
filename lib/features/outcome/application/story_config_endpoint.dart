@@ -24,9 +24,15 @@
 ///      multi-hour edge cache (this is why jsDelivr's @main URLs were
 ///      rejected — options doc "Honourable mentions").
 ///
-/// UNTIL THIS IS REAL: leave the placeholder as-is. The app is fully
-/// functional against it — every fetch fails DNS, `refreshIfStale` swallows
-/// it, and all 66 beats are served from `assets/stories_bundled.json`. There
-/// is no error UI, no retry, no user-visible symptom. Shipping with the
-/// placeholder is a supported state, not a broken one.
-const String kStoryConfigUrl = 'https://REPLACE_ME.example.com/stories.json';
+/// LIVE (2026-07-31): a Cloudflare Worker with a Static Assets binding,
+/// serving `tools/story-content/stories.json` verbatim. Verified against
+/// every requirement above — `ETag`, `Access-Control-Allow-Origin: *`,
+/// `Cache-Control: public, max-age=300`, and a genuine 304 on a matching
+/// `If-None-Match` (the worker checks this itself; Cloudflare's ASSETS
+/// binding doesn't evaluate conditional headers when fetched
+/// programmatically like this, unlike a direct edge request to a static
+/// asset). To publish a content edit: update
+/// `tools/story-content/stories.json`, then redeploy the worker (source
+/// lives outside this repo, on the founder's Cloudflare account).
+const String kStoryConfigUrl =
+    'https://soft-waterfall-3e3e.amanshrm74.workers.dev';

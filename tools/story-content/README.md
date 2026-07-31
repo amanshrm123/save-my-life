@@ -106,20 +106,17 @@ the client**. It exists purely so a human looking at the file (or a diff)
 can tell when it was last touched. There's no need to keep it perfectly
 accurate, but do update it on every edit as a courtesy to the next editor.
 
-## Cloudflare Pages CORS (`_headers`)
+## Hosting: live on a Cloudflare Worker (not Pages)
 
-If you host `stories.json` on Cloudflare Pages, it does **not** send
-`Access-Control-Allow-Origin` by default for cross-origin requests — which
-the Flutter **web** build (an active dev target for this app) needs. Add a
-`_headers` file to the root of the Pages project (alongside `stories.json`)
-containing:
+`kStoryConfigUrl` currently points at a Cloudflare Worker (Static Assets),
+not Cloudflare Pages — see `cloudflare-worker/` in this directory for the
+tracked source and redeploy instructions. The Worker was written specifically
+to satisfy every requirement in
+`lib/features/outcome/application/story_config_endpoint.dart`'s doc comment
+(HTTPS, `ETag`, `Access-Control-Allow-Origin: *`, `Cache-Control`, and a real
+304 on a matching `If-None-Match` — verified with `curl` against the live
+endpoint, not assumed).
 
-```
-/stories.json
-  Access-Control-Allow-Origin: *
-  Cache-Control: max-age=300
-```
-
-See `lib/features/outcome/application/story_config_endpoint.dart` for the
-full list of hosting requirements (HTTPS, `ETag`, cache headers) before
-pointing the app at a real endpoint.
+To publish a content edit, after step 1-4 above: `cd cloudflare-worker && cp
+../stories.json public/stories.json && npx wrangler deploy`. See
+`cloudflare-worker/README.md` for the full explanation.
