@@ -21,7 +21,10 @@ class PlayHudBar extends StatelessWidget {
   final VoidCallback onPause;
 
   bool get _isCritical =>
-      state.isFinalBand || (state.phase == RunPhase.stopped && state.lastStopWasFinalBand);
+      state.isFinalBand ||
+      (state.phase == RunPhase.stopped &&
+          state.lastStopWasFinalBand &&
+          state.lifePercent > 0);
 
   @override
   Widget build(BuildContext context) {
@@ -78,16 +81,13 @@ class _MetaCaption extends StatelessWidget {
     }
 
     if (state.phase == RunPhase.stopped && state.lastTier != null) {
-      final good = state.lastTier != StopTier.miss;
+      final isMiss = state.lastTier == StopTier.miss;
       return Text.rich(
         TextSpan(
           style: _base.copyWith(color: AppColors.hudMute),
           children: [
             TextSpan(text: 'Life ${state.lifePercent}% '),
-            TextSpan(
-              text: good ? '▲' : '▼',
-              style: TextStyle(color: good ? AppColors.green : AppColors.red),
-            ),
+            if (isMiss) TextSpan(text: '▼', style: TextStyle(color: AppColors.red)),
           ],
         ),
         maxLines: 1,

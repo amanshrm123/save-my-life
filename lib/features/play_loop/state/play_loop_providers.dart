@@ -107,8 +107,8 @@ class RunController extends Notifier<RunState> {
   Duration get liveElapsed => _clock.elapsed;
 
   /// Random target at centisecond granularity within `[targetMinMs,
-  /// targetMaxMs]` — matches the `SS:CC` display precision (architecture v2
-  /// §2/§7, re-resolved) so the "STOP AT" plate always shows a clean value.
+  /// targetMaxMs]` — matches the `M:SS.CC` display precision (architecture
+  /// v6 §2.2/§2.4) so the "TAP AT" plate always shows a clean value.
   Duration _randomTarget() {
     const centisecondMs = 10;
     final minCenti = config.targetMinMs ~/ centisecondMs;
@@ -156,7 +156,7 @@ class RunController extends Notifier<RunState> {
   }
 
   /// armed -> running, or finalBandArmed -> finalBandRunning (the center
-  /// "STOP AT" plate tap). Guarded against double-tap per architecture v2
+  /// "TAP AT" plate tap). Guarded against double-tap per architecture v2
   /// §9 risk 4.
   void startRunning() {
     // Defensive cancel-before-schedule (in case of a double-call) — the
@@ -247,11 +247,25 @@ class RunController extends Notifier<RunState> {
     final tier = classifyStop(target: state.target, stopped: stopped, config: config);
 
     if (state.phase == RunPhase.finalBandRunning) {
-      // Sudden death: no incremental life delta, terminal either way.
+      // Sudden death, but the life math is no longer special-cased
+      // (architecture v6 §4.4): the same `lifeDeltaForTier` applies here as
+      // in the normal branch below, so a fatal final-band Miss lands life on
+      // exactly 0 and a final-band Hit applies 0 (life unchanged). The only
+      // thing still special about the final band is that a non-miss
+      // *terminates the run as a win* instead of re-arming.
+      final delta = lifeDeltaForTier(tier, config);
+      final newLife = (state.lifePercent + delta).clamp(0, 100);
+      final newPeak =
+          newLife > state.peakLifePercent ? newLife : state.peakLifePercent;
+      final newMin =
+          newLife < state.minLifePercent ? newLife : state.minLifePercent;
       final survived = tier != StopTier.miss;
       _pending = survived ? _PendingAdvance.endSurvived : _PendingAdvance.endDeath;
       state = state.copyWith(
         phase: RunPhase.stopped,
+        lifePercent: newLife,
+        peakLifePercent: newPeak,
+        minLifePercent: newMin,
         lastTier: tier,
         lastStopElapsed: stopped,
         lastStopWasFinalBand: true,
@@ -266,9 +280,9 @@ class RunController extends Notifier<RunState> {
     final newPeak = newLife > state.peakLifePercent ? newLife : state.peakLifePercent;
     final newMin = newLife < state.minLifePercent ? newLife : state.minLifePercent;
     final newAttemptIndex = state.attemptIndex + 1;
-    final streakIntact = state.perfectStreakIntact && tier == StopTier.perfect;
+    final streakIntact = state.hitStreakIntact && tier == StopTier.hit;
     final eternalReached =
-        streakIntact && newAttemptIndex >= config.eternalPerfectCount;
+        streakIntact && newAttemptIndex >= config.eternalHitCount;
 
     if (newLife <= 0) {
       _pending = _PendingAdvance.endDeath;
@@ -289,7 +303,7 @@ class RunController extends Notifier<RunState> {
       lastStopElapsed: stopped,
       lastStopWasFinalBand: false,
       attemptIndex: newAttemptIndex,
-      perfectStreakIntact: streakIntact,
+      hitStreakIntact: streakIntact,
     );
   }
 
@@ -344,7 +358,7 @@ class RunController extends Notifier<RunState> {
       lifetimeDeaths: state.deaths,
       peakLifePercent: state.peakLifePercent,
       minLifePercent: state.minLifePercent,
-      perfectCount: state.attemptIndex,
+      attemptCount: state.attemptIndex,
       playerName: name,
     );
   }

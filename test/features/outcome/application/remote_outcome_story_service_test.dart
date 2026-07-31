@@ -33,7 +33,7 @@ void main() {
       lifetimeDeaths: 1,
       peakLifePercent: 77,
       minLifePercent: 3,
-      perfectCount: 3,
+      attemptCount: 3,
       playerName: 'Aman',
     );
   }

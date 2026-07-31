@@ -68,8 +68,13 @@ void main() {
       expect(
         buttonBefore.look,
         PrimaryActionLook.armStart,
-        reason: 'gold "STOP AT" look while armed',
+        reason: 'gold "TAP AT" look while armed (architecture v6 D12: the '
+            'verb is TAP in all four looks, not STOP)',
       );
+      // Architecture v6 D12/§12 tester flag 10 — the old "STOP AT" button
+      // look must be gone, replaced by "TAP AT".
+      expect(find.text('TAP AT'), findsOneWidget);
+      expect(find.text('STOP AT'), findsNothing);
 
       await tester.tap(find.byType(PrimaryActionButton));
       await tester.pump();
@@ -79,8 +84,10 @@ void main() {
       expect(
         buttonAfter.look,
         PrimaryActionLook.stopNormal,
-        reason: 'the SAME widget reskins to coral "STOP" once running',
+        reason: 'the SAME widget reskins to coral "TAP" once running',
       );
+      expect(find.text('TAP'), findsOneWidget);
+      expect(find.text('STOP'), findsNothing);
     },
   );
 
@@ -233,12 +240,13 @@ void main() {
       await flushDwell(tester);
     });
 
-    testWidgets('a Perfect shows plain "Stopped", no gap readout', (tester) async {
+    testWidgets('a Hit exactly on target shows plain "Stopped", no gap '
+        'readout', (tester) async {
       final svc = await service();
       await tester.pumpWidget(app(svc));
       await pumpPastCountdown(tester);
 
-      await forceStopViaController(tester, Duration.zero); // perfect
+      await forceStopViaController(tester, Duration.zero); // hit
 
       expect(find.text('Stopped'), findsOneWidget);
       expect(find.textContaining('off by'), findsNothing);
@@ -246,7 +254,8 @@ void main() {
       await flushDwell(tester);
     });
 
-    testWidgets('a Hit also shows plain "Stopped", no gap readout', (tester) async {
+    testWidgets('a Hit near the edge of the band also shows plain '
+        '"Stopped", no gap readout', (tester) async {
       final svc = await service();
       await tester.pumpWidget(app(svc));
       await pumpPastCountdown(tester);
@@ -311,7 +320,7 @@ void main() {
       if (controller.state.phase != RunPhase.stopped) {
         controller.state = controller.state.copyWith(
           phase: RunPhase.stopped,
-          lastTier: StopTier.perfect,
+          lastTier: StopTier.hit,
           lastStopElapsed: controller.state.target,
         );
         await tester.pump();
@@ -349,7 +358,7 @@ void main() {
         // "current".
         controller.state = controller.state.copyWith(
           phase: RunPhase.stopped,
-          lastTier: StopTier.perfect,
+          lastTier: StopTier.hit,
           lastStopElapsed: controller.state.target,
         );
         await tester.pump();

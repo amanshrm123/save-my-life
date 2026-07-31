@@ -6,10 +6,10 @@ import '../../../../core/theme/app_theme.dart';
 import '../../domain/clock_format.dart';
 
 /// The four visual "looks" of the merged bottom action button (design spec
-/// v2 §3.3), driven by run phase:
-/// - [armStart]: gold, "STOP AT `<target>`" — `armed`/`finalBandArmed`.
-/// - [stopNormal]: coral, "STOP" — `running`.
-/// - [stopFinal]: red, "STOP" — `finalBandRunning`.
+/// v2 §3.3, verb revised to `TAP` by architecture v6 D12/design v3 §5):
+/// - [armStart]: gold, "TAP AT `<target>`" — `armed`/`finalBandArmed`.
+/// - [stopNormal]: coral, "TAP" — `running`.
+/// - [stopFinal]: red, "TAP" — `finalBandRunning`.
 /// - [dwellDimmed]: gold, next target frozen, inert — `stopped`.
 enum PrimaryActionLook { armStart, stopNormal, stopFinal, dwellDimmed }
 
@@ -102,10 +102,10 @@ class _PrimaryActionButtonState extends State<PrimaryActionButton>
   String get _semanticsLabel {
     switch (widget.look) {
       case PrimaryActionLook.armStart:
-        return 'Stop at ${formatClock(widget.target)}';
+        return 'Tap at ${formatClock(widget.target)}';
       case PrimaryActionLook.stopNormal:
       case PrimaryActionLook.stopFinal:
-        return 'Stop';
+        return 'Tap';
       case PrimaryActionLook.dwellDimmed:
         return 'Next target ${formatClock(widget.target)}';
     }
@@ -119,7 +119,7 @@ class _PrimaryActionButtonState extends State<PrimaryActionButton>
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              'STOP AT',
+              'TAP AT',
               style: TextStyle(
                 fontFamily: 'Fredoka',
                 fontSize: 11,
@@ -130,14 +130,20 @@ class _PrimaryActionButtonState extends State<PrimaryActionButton>
               ),
             ),
             const SizedBox(height: 4),
+            // One `Text`, one `TextStyle` over the full `M:SS.CC` string
+            // (design v3 §4.1) — the always-`0` minutes digit is
+            // deliberately NOT split into its own smaller/muted `TextSpan`;
+            // that would break `tabularFigures()`'s per-glyph width
+            // guarantee at the span seam.
             Text(
               formatClock(widget.target),
               style: const TextStyle(
                 fontFamily: 'Fredoka',
-                fontSize: 56,
+                fontSize: 44,
                 fontWeight: FontWeight.w700,
                 color: AppColors.ink,
                 height: 1,
+                fontFeatures: [FontFeature.tabularFigures()],
               ),
             ),
           ],
@@ -149,12 +155,12 @@ class _PrimaryActionButtonState extends State<PrimaryActionButton>
         final labelShadow = isFinal ? AppColors.redDark : AppColors.coralDark;
         final subLabel = isFinal
             ? 'one clean stop saves you'
-            : 'stop as close to ${formatClock(widget.target)} as you can';
+            : 'tap on the number';
         return Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-              'STOP',
+              'TAP',
               style: TextStyle(
                 fontFamily: 'Fredoka',
                 fontSize: 34,

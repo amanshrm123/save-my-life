@@ -13,21 +13,22 @@ import 'package:timing_tap/features/play_loop/domain/run_state.dart';
 import 'package:timing_tap/features/play_loop/domain/run_summary.dart';
 import 'package:timing_tap/features/play_loop/state/play_loop_providers.dart';
 
-/// `RunController`/`RunState` state-machine coverage (architecture v2 §5) —
-/// the highest-value test surface per this project's timing/scoring
-/// priority. Pure `ProviderContainer` tests, no widget pump: the domain
-/// state machine has nothing to do with the display Ticker.
+/// `RunController`/`RunState` state-machine coverage (architecture v2 §5,
+/// scoring model revised by architecture v6 §3/§4) — the highest-value test
+/// surface per this project's timing/scoring priority. Pure
+/// `ProviderContainer` tests, no widget pump: the domain state machine has
+/// nothing to do with the display Ticker.
 ///
 /// ## The "how do we control tiers deterministically" problem
 ///
 /// `RunController` owns a private, real `Stopwatch`-backed `GameClock` and a
 /// private `Random` for target selection — neither is injectable (by design:
 /// architecture v2 §9 risk 10, exactly one instance, never exposed). Even
-/// now that the target range is a short `[2.00s, 6.00s]` (re-resolved from
-/// the earlier 0-5min range) waiting real wall-clock time for the `Random`
-/// to land near a given tier boundary would still be slow and flaky —
-/// nothing pins *which* target within the range gets drawn, or exactly when
-/// a real tap lands relative to it.
+/// now that the target range is a short `[2.00s, 4.90s]` (architecture v6
+/// §8.1/D11 — unchanged from before) waiting real wall-clock time for the
+/// `Random` to land near a given tier boundary would still be slow and
+/// flaky — nothing pins *which* target within the range gets drawn, or
+/// exactly when a real tap lands relative to it.
 ///
 /// Instead these tests use the sanctioned `@visibleForTesting` `state`
 /// setter that `Notifier` itself exposes (see `package:riverpod`'s
@@ -37,12 +38,10 @@ import 'package:timing_tap/features/play_loop/state/play_loop_providers.dart';
 /// own capture-and-classify code path completely real (nothing about
 /// `GameClock` or `classifyStop` is mocked) while making the resulting tier
 /// deterministic:
-///   - offset 0            -> error is only the few microseconds of test
-///                             overhead -> comfortably inside the 60ms
-///                             Perfect band.
-///   - offset 100ms         -> error is ~100ms minus that same tiny
-///                             overhead -> comfortably inside the
-///                             60-180ms Hit band.
+///   - offset 100ms         -> error is ~100ms minus test overhead ->
+///                             comfortably inside the single 180ms Hit band
+///                             (architecture v6 D2 — there is only one band
+///                             now, no inner Perfect band to also target).
 ///   - offset 5s            -> error is seconds -> comfortably a Miss.
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -80,7 +79,6 @@ void main() {
     return c.state.lastTier!;
   }
 
-  const perfectOffset = Duration.zero;
   const hitOffset = Duration(milliseconds: 100);
   const missOffset = Duration(seconds: 5);
 
@@ -92,7 +90,7 @@ void main() {
       expect(state.phase, RunPhase.countdown);
       expect(state.lifePercent, 50);
       expect(state.attemptIndex, 0);
-      expect(state.perfectStreakIntact, isTrue);
+      expect(state.hitStreakIntact, isTrue);
       expect(state.outcome, isNull);
     });
 
@@ -185,7 +183,7 @@ void main() {
       expect(c.state.phase, RunPhase.countdown);
 
       c.arm();
-      forceStop(c, perfectOffset); // -> stopped
+      forceStop(c, hitOffset); // -> stopped
       expect(c.state.phase, RunPhase.stopped);
       final before = c.state;
 
@@ -194,23 +192,9 @@ void main() {
     });
   });
 
-  group('registerStop() — tier classification & life application (normal attempts)', () {
-    test('a Perfect stop applies +3% life', () async {
-      final container = await buildContainer();
-      final c = container.read(runControllerProvider.notifier);
-      c.arm();
-      c.state = c.state.copyWith(lifePercent: 50);
-
-      final tier = forceStop(c, perfectOffset);
-
-      expect(tier, StopTier.perfect);
-      expect(c.state.lifePercent, 53);
-      expect(c.state.phase, RunPhase.stopped);
-      expect(c.state.lastStopWasFinalBand, isFalse);
-      expect(c.state.attemptIndex, 1);
-    });
-
-    test('a Hit stop applies +2% life', () async {
+  group('registerStop() — tier classification & life application (normal '
+      'attempts, architecture v6 §3/§4.1)', () {
+    test('a Hit stop applies 0% life delta ("safe" — life never rises)', () async {
       final container = await buildContainer();
       final c = container.read(runControllerProvider.notifier);
       c.arm();
@@ -219,10 +203,13 @@ void main() {
       final tier = forceStop(c, hitOffset);
 
       expect(tier, StopTier.hit);
-      expect(c.state.lifePercent, 52);
+      expect(c.state.lifePercent, 50);
+      expect(c.state.phase, RunPhase.stopped);
+      expect(c.state.lastStopWasFinalBand, isFalse);
+      expect(c.state.attemptIndex, 1);
     });
 
-    test('a Miss stop applies -5% life', () async {
+    test('a Miss stop applies -10% life', () async {
       final container = await buildContainer();
       final c = container.read(runControllerProvider.notifier);
       c.arm();
@@ -231,21 +218,11 @@ void main() {
       final tier = forceStop(c, missOffset);
 
       expect(tier, StopTier.miss);
-      expect(c.state.lifePercent, 45);
+      expect(c.state.lifePercent, 40);
     });
 
-    test('life clamps at 100% (a Perfect at 99% does not overflow to 102%)', () async {
-      final container = await buildContainer();
-      final c = container.read(runControllerProvider.notifier);
-      c.arm();
-      c.state = c.state.copyWith(lifePercent: 99);
-
-      forceStop(c, perfectOffset);
-
-      expect(c.state.lifePercent, 100);
-    });
-
-    test('life clamps at 0% (does not go negative)', () async {
+    test('life clamps at 0% (does not go negative) even from a life value '
+        'deep past what a single Miss would explain', () async {
       final container = await buildContainer();
       final c = container.read(runControllerProvider.notifier);
       c.arm();
@@ -261,7 +238,7 @@ void main() {
       final c = container.read(runControllerProvider.notifier);
       c.arm();
 
-      forceStop(c, perfectOffset);
+      forceStop(c, hitOffset);
 
       expect(c.state.lastStopElapsed, isNotNull);
     });
@@ -272,7 +249,7 @@ void main() {
       final container = await buildContainer();
       final c = container.read(runControllerProvider.notifier);
       c.arm();
-      forceStop(c, perfectOffset);
+      forceStop(c, hitOffset);
       final afterFirst = c.state;
 
       c.registerStop(); // already consumed / already `stopped`
@@ -357,13 +334,13 @@ void main() {
       c.startRunning();
       burnPastMinStopElapsed();
       final base = c.liveElapsed;
-      c.state = c.state.copyWith(target: base); // -> perfect on first stop
+      c.state = c.state.copyWith(target: base); // -> hit on first stop
 
       c.registerStop();
       c.registerStop(); // fires immediately after; must be fully inert
       c.registerStop();
 
-      expect(c.state.lastTier, StopTier.perfect);
+      expect(c.state.lastTier, StopTier.hit);
       expect(c.state.attemptIndex, 1, reason: 'only the first stop may count');
     });
   });
@@ -412,7 +389,7 @@ void main() {
     test('from finalBandArmed, dispatches to a start into finalBandRunning', () async {
       final container = await buildContainer();
       final c = container.read(runControllerProvider.notifier);
-      c.state = c.state.copyWith(phase: RunPhase.finalBandArmed, lifePercent: 4);
+      c.state = c.state.copyWith(phase: RunPhase.finalBandArmed, lifePercent: 10);
 
       c.handlePrimaryPointerDown();
 
@@ -426,19 +403,19 @@ void main() {
       c.startRunning();
       burnPastMinStopElapsed();
       final base = c.liveElapsed;
-      c.state = c.state.copyWith(target: base); // -> perfect
+      c.state = c.state.copyWith(target: base); // -> hit
 
       c.handlePrimaryPointerDown();
 
       expect(c.state.phase, RunPhase.stopped);
-      expect(c.state.lastTier, StopTier.perfect);
+      expect(c.state.lastTier, StopTier.hit);
       expect(c.state.lastStopWasFinalBand, isFalse);
     });
 
     test('from finalBandRunning, dispatches to the sudden-death stop path', () async {
       final container = await buildContainer();
       final c = container.read(runControllerProvider.notifier);
-      c.state = c.state.copyWith(phase: RunPhase.finalBandArmed, lifePercent: 4);
+      c.state = c.state.copyWith(phase: RunPhase.finalBandArmed, lifePercent: 10);
       c.startRunning();
       burnPastMinStopElapsed();
       final base = c.liveElapsed;
@@ -460,7 +437,7 @@ void main() {
       expect(c.state.phase, RunPhase.countdown);
 
       c.arm();
-      forceStop(c, perfectOffset); // -> stopped
+      forceStop(c, hitOffset); // -> stopped
       final beforeStopped = c.state;
       c.handlePrimaryPointerDown();
       expect(c.state, same(beforeStopped));
@@ -485,13 +462,13 @@ void main() {
       c.startRunning();
       burnPastMinStopElapsed();
       final base = c.liveElapsed;
-      c.state = c.state.copyWith(target: base); // -> perfect on first stop
+      c.state = c.state.copyWith(target: base); // -> hit on first stop
 
       c.handlePrimaryPointerDown();
       c.handlePrimaryPointerDown();
       c.handlePrimaryPointerDown();
 
-      expect(c.state.lastTier, StopTier.perfect);
+      expect(c.state.lastTier, StopTier.hit);
       expect(c.state.attemptIndex, 1, reason: 'only the first stop may count');
     });
   });
@@ -533,14 +510,14 @@ void main() {
         'the guard exists to close', () async {
       final container = await buildContainer();
       final c = container.read(runControllerProvider.notifier);
-      c.state = c.state.copyWith(phase: RunPhase.finalBandArmed, lifePercent: 4);
+      c.state = c.state.copyWith(phase: RunPhase.finalBandArmed, lifePercent: 10);
       c.startRunning();
 
       c.handlePrimaryPointerDown(); // fired immediately, well under the threshold
 
       expect(c.state.phase, RunPhase.finalBandRunning);
       expect(c.state.outcome, isNull, reason: 'must not have ended the run as a death');
-      expect(c.state.lifePercent, 4);
+      expect(c.state.lifePercent, 10);
     });
 
     test('a stop at/just past minStopElapsedMs still resolves normally '
@@ -551,7 +528,7 @@ void main() {
       c.startRunning();
       burnPastMinStopElapsed(); // real elapsed is now just past the threshold
       final base = c.liveElapsed;
-      c.state = c.state.copyWith(target: base); // -> perfect
+      c.state = c.state.copyWith(target: base); // -> hit
 
       c.handlePrimaryPointerDown();
 
@@ -560,7 +537,7 @@ void main() {
         RunPhase.stopped,
         reason: 'a stop at/just past the threshold must be accepted normally',
       );
-      expect(c.state.lastTier, StopTier.perfect);
+      expect(c.state.lastTier, StopTier.hit);
       expect(c.state.attemptIndex, 1);
     });
   });
@@ -606,7 +583,7 @@ void main() {
         'death via the sudden-death path once advanceAfterDwell() runs', () async {
       final container = await buildContainer();
       final c = container.read(runControllerProvider.notifier);
-      c.state = c.state.copyWith(phase: RunPhase.finalBandArmed, lifePercent: 4);
+      c.state = c.state.copyWith(phase: RunPhase.finalBandArmed, lifePercent: 10);
 
       fakeAsync((async) {
         c.startRunning();
@@ -643,7 +620,7 @@ void main() {
 
         burnPastMinStopElapsed();
         final base = c.liveElapsed;
-        c.state = c.state.copyWith(target: base); // -> perfect on manual stop
+        c.state = c.state.copyWith(target: base); // -> hit on manual stop
         c.registerStop();
 
         expect(
@@ -651,7 +628,7 @@ void main() {
           0,
           reason: 'a manual stop must cancel the pending auto-miss timer',
         );
-        expect(c.state.lastTier, StopTier.perfect);
+        expect(c.state.lastTier, StopTier.hit);
 
         final afterManualStop = c.state;
         async.elapse(const Duration(seconds: 10));
@@ -749,42 +726,43 @@ void main() {
     });
   });
 
-  group('final-band entry condition: 0 < life <= 5 after a delta', () {
-    test('a Miss that lands exactly at life=5 enters the final band on '
+  group('final-band entry condition (architecture v6 §4.3/D6: '
+      '0 < life <= finalBandThresholdPercent(10) after a delta)', () {
+    test('a Miss that lands exactly at life=10 enters the final band on '
         'advanceAfterDwell (boundary inclusive)', () async {
       final container = await buildContainer();
       final c = container.read(runControllerProvider.notifier);
       c.arm();
-      c.state = c.state.copyWith(lifePercent: 10); // 10 - 5 = 5
+      c.state = c.state.copyWith(lifePercent: 20); // 20 - 10 = 10
 
       forceStop(c, missOffset);
-      expect(c.state.lifePercent, 5);
+      expect(c.state.lifePercent, 10);
       c.advanceAfterDwell();
 
       expect(c.state.phase, RunPhase.finalBandArmed);
       expect(c.state.outcome, isNull);
     });
 
-    test('a Miss that lands at life=6 (just above the threshold) rearms '
+    test('a Miss that lands at life=11 (just above the threshold) rearms '
         'normally instead of entering the final band', () async {
       final container = await buildContainer();
       final c = container.read(runControllerProvider.notifier);
       c.arm();
-      c.state = c.state.copyWith(lifePercent: 11); // 11 - 5 = 6
+      c.state = c.state.copyWith(lifePercent: 21); // 21 - 10 = 11
 
       forceStop(c, missOffset);
-      expect(c.state.lifePercent, 6);
+      expect(c.state.lifePercent, 11);
       c.advanceAfterDwell();
 
       expect(c.state.phase, RunPhase.armed);
     });
 
     test('life<=0 is immediate death and takes precedence over the final '
-        'band (0 is excluded from the final-band\'s "0 < life" condition)', () async {
+        'band (0 satisfies both conditions; death wins by evaluation order)', () async {
       final container = await buildContainer();
       final c = container.read(runControllerProvider.notifier);
       c.arm();
-      c.state = c.state.copyWith(lifePercent: 5); // 5 - 5 = 0
+      c.state = c.state.copyWith(lifePercent: 10); // 10 - 10 = 0
 
       forceStop(c, missOffset);
       expect(c.state.lifePercent, 0);
@@ -794,11 +772,12 @@ void main() {
       expect(c.state.outcome, RunOutcome.death);
     });
 
-    test('a life-driving Miss deep past zero also dies (clamped, not negative)', () async {
+    test('a life-driving Miss deep past zero also dies (clamped, not '
+        'negative)', () async {
       final container = await buildContainer();
       final c = container.read(runControllerProvider.notifier);
       c.arm();
-      c.state = c.state.copyWith(lifePercent: 2); // 2 - 5 = -3 -> clamp 0
+      c.state = c.state.copyWith(lifePercent: 4); // 4 - 10 = -6 -> clamp 0
 
       forceStop(c, missOffset);
       c.advanceAfterDwell();
@@ -809,132 +788,207 @@ void main() {
     });
   });
 
-  group('final band (finalBandArmed/finalBandRunning) — sudden death (architecture v2 §4)', () {
-    test('a non-miss (Perfect) in the final band ends the run as survived, '
-        'with no incremental life change', () async {
+  group('EXACTLY 5 misses kills from a fresh run (architecture v6 §4.2/§4.3 '
+      '— the 5-miss attrition budget: 50 -> 40 -> 30 -> 20 -> 10 -> 0)', () {
+    test('4 normal misses land finalBandArmed at 10%, and the 5th miss (in '
+        'the final band) ends the run as death with lifePercent==0 AND '
+        'minLifePercent==0', () async {
       final container = await buildContainer();
       final c = container.read(runControllerProvider.notifier);
-      c.state = c.state.copyWith(phase: RunPhase.finalBandArmed, lifePercent: 4);
+      c.arm();
 
-      final tier = forceStop(c, perfectOffset);
-      expect(tier, StopTier.perfect);
+      // Misses 1-4: 50 -> 40 -> 30 -> 20 -> 10, re-arming each time except
+      // the 4th, which must land in the final band instead.
+      for (var i = 0; i < 3; i++) {
+        forceStop(c, missOffset);
+        c.advanceAfterDwell();
+        expect(c.state.phase, RunPhase.armed);
+      }
+      forceStop(c, missOffset); // 4th miss: 20 -> 10
+      expect(c.state.lifePercent, 10);
+      c.advanceAfterDwell();
+      expect(
+        c.state.phase,
+        RunPhase.finalBandArmed,
+        reason: 'exactly 4 misses must arm the final band at 10%',
+      );
+
+      // 5th miss: sudden death in the final band, 10 -> 0.
+      forceStop(c, missOffset);
+      expect(c.state.lifePercent, 0);
+      c.advanceAfterDwell();
+
+      expect(c.state.phase, RunPhase.ended);
+      expect(c.state.outcome, RunOutcome.death);
+      expect(c.state.lifePercent, 0);
+      expect(c.state.minLifePercent, 0);
+    });
+  });
+
+  group('final band (finalBandArmed/finalBandRunning) — sudden death '
+      '(architecture v6 §4.4: the same lifeDeltaForTier now applies here too)', () {
+    test('a non-miss (Hit) in the final band ends the run as survived, with '
+        'lifePercent staying at 10% (delta is 0)', () async {
+      final container = await buildContainer();
+      final c = container.read(runControllerProvider.notifier);
+      c.state = c.state.copyWith(phase: RunPhase.finalBandArmed, lifePercent: 10);
+
+      final tier = forceStop(c, hitOffset);
+      expect(tier, StopTier.hit);
       expect(c.state.lastStopWasFinalBand, isTrue);
-      expect(c.state.lifePercent, 4, reason: 'sudden death applies no incremental delta');
+      expect(c.state.lifePercent, 10, reason: 'Hit delta is 0, even in the final band');
 
       c.advanceAfterDwell();
       expect(c.state.phase, RunPhase.ended);
       expect(c.state.outcome, RunOutcome.survived);
+      expect(c.state.lifePercent, 10);
     });
 
-    test('a non-miss (Hit, not just Perfect) in the final band also survives', () async {
-      final container = await buildContainer();
-      final c = container.read(runControllerProvider.notifier);
-      c.state = c.state.copyWith(phase: RunPhase.finalBandArmed, lifePercent: 4);
-
-      final tier = forceStop(c, hitOffset);
-      expect(tier, StopTier.hit);
-
-      c.advanceAfterDwell();
-      expect(c.state.outcome, RunOutcome.survived);
-    });
-
-    test('a Miss in the final band ends the run as death and increments the '
-        'lifetime deaths counter in `state`', () async {
+    test('a Miss in the final band ends the run as death with lifePercent '
+        'landing on exactly 0 (architecture v6 §4.4 — death is genuinely at '
+        '0% life on this path too, not frozen at 10%) and increments the '
+        'lifetime deaths counter', () async {
       final container = await buildContainer();
       final c = container.read(runControllerProvider.notifier);
       c.state = c.state.copyWith(
         phase: RunPhase.finalBandArmed,
-        lifePercent: 4,
+        lifePercent: 10,
         deaths: 9,
       );
 
       forceStop(c, missOffset);
+      expect(c.state.lifePercent, 0);
       c.advanceAfterDwell();
 
       expect(c.state.phase, RunPhase.ended);
       expect(c.state.outcome, RunOutcome.death);
       expect(c.state.deaths, 10);
+      expect(c.state.minLifePercent, 0);
     });
   });
 
-  group('Eternal ending: first 3 attempts of a run all Perfect (architecture v2 §4)', () {
-    test('3 Perfect attempts in a row from a fresh run end it as eternal', () async {
+  group('Eternal ending: first eternalHitCount (12) attempts of a run all '
+      'Hit (architecture v6 D9/§5 — redefined around the hit streak, no '
+      'Perfect tier to key off anymore)', () {
+    test('12 consecutive in-band (Hit) stops from a fresh run end it as '
+        'eternal', () async {
       final container = await buildContainer();
       final c = container.read(runControllerProvider.notifier);
       c.arm();
 
-      forceStop(c, perfectOffset);
-      c.advanceAfterDwell(); // rearm (attempt 1 of 3)
-      expect(c.state.phase, RunPhase.armed);
-
-      forceStop(c, perfectOffset);
-      c.advanceAfterDwell(); // rearm (attempt 2 of 3)
-      expect(c.state.phase, RunPhase.armed);
-
-      forceStop(c, perfectOffset);
-      c.advanceAfterDwell(); // attempt 3 of 3 -> eternal
+      for (var i = 0; i < RunConfig.defaults.eternalHitCount; i++) {
+        forceStop(c, hitOffset);
+        c.advanceAfterDwell();
+      }
 
       expect(c.state.phase, RunPhase.ended);
       expect(c.state.outcome, RunOutcome.eternal);
+      expect(c.state.attemptIndex, 12);
     });
 
-    test('a Hit anywhere in the first 3 attempts permanently breaks the '
-        'streak — even if attempts 4+ are all Perfect, Eternal is never '
-        'reached', () async {
+    test('11 Hits then a Miss is NOT eternal: hitStreakIntact flips false '
+        'and never recovers within the same run, even if every subsequent '
+        'attempt is a Hit again', () async {
       final container = await buildContainer();
       final c = container.read(runControllerProvider.notifier);
       c.arm();
 
-      forceStop(c, perfectOffset); // attempt 1: perfect
-      c.advanceAfterDwell();
-      expect(c.state.perfectStreakIntact, isTrue);
+      for (var i = 0; i < 11; i++) {
+        forceStop(c, hitOffset);
+        c.advanceAfterDwell();
+        expect(c.state.hitStreakIntact, isTrue);
+        expect(c.state.phase, isNot(RunPhase.ended));
+      }
 
-      forceStop(c, hitOffset); // attempt 2: hit -> breaks the streak
+      // The 12th attempt: a Miss instead of the streak-completing Hit.
+      forceStop(c, missOffset);
       c.advanceAfterDwell();
-      expect(c.state.perfectStreakIntact, isFalse);
+      expect(
+        c.state.hitStreakIntact,
+        isFalse,
+        reason: 'a single Miss inside the eternal window permanently breaks '
+            'the streak',
+      );
+      expect(c.state.phase, isNot(RunPhase.ended));
+      expect(c.state.outcome, isNull);
 
-      forceStop(c, perfectOffset); // attempt 3: perfect again
-      c.advanceAfterDwell();
+      // Further Hits must never resurrect Eternal — the streak can only
+      // ever go true -> false, never false -> true again.
+      for (var i = 0; i < 5; i++) {
+        forceStop(c, hitOffset);
+        c.advanceAfterDwell();
+      }
+
+      expect(c.state.hitStreakIntact, isFalse);
       expect(
         c.state.phase,
         isNot(RunPhase.ended),
-        reason: 'the streak was already broken at attempt 2 — reaching '
-            'attempt 3 with a Perfect must not resurrect Eternal',
+        reason: 'Eternal must never be reached once the streak has broken, '
+            'no matter how many further Hits follow',
       );
-
-      // Attempts 4 and 5: also Perfect — still must never reach Eternal,
-      // because perfectStreakIntact can only ever go true->false, never
-      // false->true again.
-      forceStop(c, perfectOffset);
-      c.advanceAfterDwell();
-      forceStop(c, perfectOffset);
-      c.advanceAfterDwell();
-
-      expect(c.state.attemptIndex, 5);
-      expect(c.state.perfectStreakIntact, isFalse);
-      expect(c.state.phase, isNot(RunPhase.ended));
       expect(c.state.outcome, isNull);
     });
+  });
 
-    test('a Miss anywhere in the first 3 attempts also permanently breaks '
-        'the streak', () async {
+  group('monotonic-life invariant (architecture v6 §4.1 — Hit is neutral, '
+      'so lifePercent can never rise within a run)', () {
+    test('over a scripted mixed Hit/Miss run, lifePercent never increases '
+        'from one attempt to the next, and peakLifePercent stays pinned to '
+        'startLifePercent throughout', () async {
       final container = await buildContainer();
       final c = container.read(runControllerProvider.notifier);
       c.arm();
-      // Keep life high so the Miss doesn't accidentally end the run via
-      // death/final-band and mask the streak assertion.
-      c.state = c.state.copyWith(lifePercent: 80);
 
-      forceStop(c, missOffset); // attempt 1: miss
-      c.advanceAfterDwell();
-      expect(c.state.perfectStreakIntact, isFalse);
+      final script = [hitOffset, missOffset, hitOffset, hitOffset, missOffset];
+      var previousLife = c.state.lifePercent;
+      for (final offset in script) {
+        forceStop(c, offset);
+        expect(
+          c.state.lifePercent,
+          lessThanOrEqualTo(previousLife),
+          reason: 'lifePercent must never increase, regardless of tier',
+        );
+        expect(
+          c.state.peakLifePercent,
+          RunConfig.defaults.startLifePercent,
+          reason: 'peakLifePercent must stay pinned at startLifePercent — '
+              'nothing can ever raise it under this economy',
+        );
+        previousLife = c.state.lifePercent;
+        c.advanceAfterDwell();
+      }
 
-      forceStop(c, perfectOffset); // attempt 2: perfect
-      c.advanceAfterDwell();
-      forceStop(c, perfectOffset); // attempt 3: perfect
+      expect(c.state.peakLifePercent, RunConfig.defaults.startLifePercent);
+    });
 
+    test('canary: whenever hitStreakIntact is true, lifePercent equals '
+        'startLifePercent (architecture v6 §5.2 — this documents the '
+        'equivalence without the code depending on it; hitStreakIntact stays '
+        'an explicit field, never derived from this relationship)', () async {
+      final container = await buildContainer();
+      final c = container.read(runControllerProvider.notifier);
+      c.arm();
+
+      forceStop(c, hitOffset);
       c.advanceAfterDwell();
-      expect(c.state.phase, isNot(RunPhase.ended));
+      if (c.state.hitStreakIntact) {
+        expect(c.state.lifePercent, RunConfig.defaults.startLifePercent);
+      }
+
+      forceStop(c, hitOffset);
+      c.advanceAfterDwell();
+      if (c.state.hitStreakIntact) {
+        expect(c.state.lifePercent, RunConfig.defaults.startLifePercent);
+      }
+
+      // Breaking the streak with a Miss: the canary is vacuously satisfied
+      // from here on (hitStreakIntact is false), but life has genuinely
+      // moved off the start value, confirming the two are correlated, not
+      // literally the same field.
+      forceStop(c, missOffset);
+      c.advanceAfterDwell();
+      expect(c.state.hitStreakIntact, isFalse);
+      expect(c.state.lifePercent, isNot(RunConfig.defaults.startLifePercent));
     });
   });
 
@@ -986,7 +1040,7 @@ void main() {
         'returns to finalBandArmed, not ending the run', () async {
       final container = await buildContainer();
       final c = container.read(runControllerProvider.notifier);
-      c.state = c.state.copyWith(phase: RunPhase.finalBandArmed, lifePercent: 3);
+      c.state = c.state.copyWith(phase: RunPhase.finalBandArmed, lifePercent: 10);
       c.startRunning();
 
       c.pause();
@@ -995,7 +1049,7 @@ void main() {
 
       c.resume();
       expect(c.state.phase, RunPhase.finalBandArmed);
-      expect(c.state.lifePercent, 3);
+      expect(c.state.lifePercent, 10);
       expect(c.state.outcome, isNull);
     });
 
@@ -1014,7 +1068,7 @@ void main() {
       final container = await buildContainer();
       final c = container.read(runControllerProvider.notifier);
       c.arm();
-      forceStop(c, perfectOffset);
+      forceStop(c, hitOffset);
       expect(c.state.phase, RunPhase.stopped);
 
       c.pause();
@@ -1051,19 +1105,19 @@ void main() {
   group('restartRun() — regression: preserves runNumber AND deaths, resets '
       'everything else (architecture v2 §6/§10 flag 7)', () {
     test('restartRun() resets life to 50%, target, attemptIndex, and the '
-        'perfect streak, and moves to armed', () async {
+        'hit streak, and moves to armed', () async {
       final container = await buildContainer({kKeyTotalRunsPlayed: 4, kKeyTotalDeaths: 1});
       final c = container.read(runControllerProvider.notifier);
       c.arm();
-      c.state = c.state.copyWith(lifePercent: 60);
-      forceStop(c, hitOffset); // dirty attemptIndex/streak/lastTier
+      c.state = c.state.copyWith(lifePercent: 40);
+      forceStop(c, missOffset); // dirty attemptIndex/streak/lastTier
 
       c.restartRun();
 
       expect(c.state.phase, RunPhase.armed);
       expect(c.state.lifePercent, 50);
       expect(c.state.attemptIndex, 0);
-      expect(c.state.perfectStreakIntact, isTrue);
+      expect(c.state.hitStreakIntact, isTrue);
       expect(c.state.lastTier, isNull);
       expect(c.state.lastStopElapsed, isNull);
       expect(c.state.outcome, isNull);
@@ -1090,7 +1144,7 @@ void main() {
           lifetimeDeaths: 0,
           peakLifePercent: 0,
           minLifePercent: 0,
-          perfectCount: 0,
+          attemptCount: 0,
           playerName: '',
         ),
       );
@@ -1154,9 +1208,9 @@ void main() {
       final c = container.read(runControllerProvider.notifier);
       final service = container.read(preferencesServiceProvider);
       c.arm();
-      c.state = c.state.copyWith(lifePercent: 5);
+      c.state = c.state.copyWith(lifePercent: 10);
 
-      forceStop(c, missOffset); // 5 - 5 = 0 -> death
+      forceStop(c, missOffset); // 10 - 10 = 0 -> death
       c.advanceAfterDwell();
       await pumpEventQueue(); // let the fire-and-forget prefs write settle
 
@@ -1168,9 +1222,9 @@ void main() {
       final container = await buildContainer({kKeyTotalRunsPlayed: 0, kKeyTotalDeaths: 0});
       final c = container.read(runControllerProvider.notifier);
       final service = container.read(preferencesServiceProvider);
-      c.state = c.state.copyWith(phase: RunPhase.finalBandArmed, lifePercent: 4);
+      c.state = c.state.copyWith(phase: RunPhase.finalBandArmed, lifePercent: 10);
 
-      forceStop(c, perfectOffset); // non-miss in final band -> survived
+      forceStop(c, hitOffset); // non-miss in final band -> survived
       c.advanceAfterDwell();
       await pumpEventQueue();
 
@@ -1184,12 +1238,16 @@ void main() {
       final service = container.read(preferencesServiceProvider);
       c.arm();
 
-      forceStop(c, perfectOffset);
-      c.advanceAfterDwell();
-      forceStop(c, perfectOffset);
-      c.advanceAfterDwell();
-      forceStop(c, perfectOffset);
-      c.advanceAfterDwell(); // -> eternal
+      for (var i = 0; i < RunConfig.defaults.eternalHitCount; i++) {
+        forceStop(c, hitOffset);
+        c.advanceAfterDwell();
+      }
+      // Read the (autoDispose) controller's own state BEFORE yielding to the
+      // event loop: with no active listener, `pumpEventQueue()` below is
+      // exactly the kind of real event-loop turn that lets `autoDispose`
+      // tear the provider down (architecture v2 §9 risk 9/10) — reading
+      // `c.state` afterward would throw.
+      expect(c.state.outcome, RunOutcome.eternal);
       await pumpEventQueue();
 
       expect(service.totalRunsPlayed, 1);
@@ -1210,7 +1268,7 @@ void main() {
       expect(cA.state.deaths, 0);
 
       cA.arm();
-      cA.state = cA.state.copyWith(lifePercent: 5);
+      cA.state = cA.state.copyWith(lifePercent: 10);
       forceStop(cA, missOffset); // -> death
       cA.advanceAfterDwell();
       await pumpEventQueue();
@@ -1229,7 +1287,8 @@ void main() {
     });
   });
 
-  group('peak/min life tracking (architecture v3 §2) — RunState.peakLifePercent/minLifePercent', () {
+  group('peak/min life tracking (architecture v3 §2, revised by v6 §4.1) — '
+      'RunState.peakLifePercent/minLifePercent', () {
     test('both start seeded at RunConfig.startLifePercent (50) on a fresh run', () async {
       final container = await buildContainer();
       final state = container.read(runControllerProvider);
@@ -1238,50 +1297,49 @@ void main() {
       expect(state.minLifePercent, 50);
     });
 
-    test('a Perfect raises the peak but leaves the min at the starting floor', () async {
+    test('a Hit leaves both peak and min unchanged (0 delta — nothing to '
+        'raise or lower)', () async {
       final container = await buildContainer();
       final c = container.read(runControllerProvider.notifier);
       c.arm();
 
-      forceStop(c, perfectOffset); // 50 -> 53
+      forceStop(c, hitOffset);
 
-      expect(c.state.lifePercent, 53);
-      expect(c.state.peakLifePercent, 53);
+      expect(c.state.lifePercent, 50);
+      expect(c.state.peakLifePercent, 50);
       expect(c.state.minLifePercent, 50);
     });
 
-    test('a subsequent Miss lowers the min while the peak stays at its '
-        'already-reached high-water mark', () async {
+    test('a Miss lowers the min while the peak can never rise above '
+        'startLifePercent — architecture v6 §4.1\'s invariant that '
+        'peakLifePercent == startLifePercent for every run, always', () async {
       final container = await buildContainer();
       final c = container.read(runControllerProvider.notifier);
       c.arm();
-      forceStop(c, perfectOffset); // 50 -> 53, peak 53
-      c.advanceAfterDwell(); // stopped -> armed (rearm)
-      forceStop(c, missOffset); // 53 -> 48
+      forceStop(c, missOffset); // 50 -> 40
 
-      expect(c.state.lifePercent, 48);
-      expect(c.state.peakLifePercent, 53, reason: 'peak must not fall back down');
-      expect(c.state.minLifePercent, 48);
+      expect(c.state.lifePercent, 40);
+      expect(c.state.peakLifePercent, 50, reason: 'peak can never rise under this economy');
+      expect(c.state.minLifePercent, 40);
     });
 
-    test('a later recovery above the min (but below the peak) moves '
-        'neither peak nor min — both only ever move toward their extreme', () async {
+    test('further misses continue lowering the min only; the peak stays '
+        'pinned at startLifePercent for the whole run', () async {
       final container = await buildContainer();
       final c = container.read(runControllerProvider.notifier);
       c.arm();
-      forceStop(c, perfectOffset); // 50 -> 53, peak 53
+      forceStop(c, missOffset); // 50 -> 40
       c.advanceAfterDwell();
-      forceStop(c, missOffset); // 53 -> 48, min 48
-      c.advanceAfterDwell();
-      forceStop(c, hitOffset); // 48 -> 50, between the min and peak
+      forceStop(c, missOffset); // 40 -> 30
 
-      expect(c.state.lifePercent, 50);
-      expect(c.state.peakLifePercent, 53, reason: 'unchanged: 50 < 53');
-      expect(c.state.minLifePercent, 48, reason: 'unchanged: 50 > 48');
+      expect(c.state.lifePercent, 30);
+      expect(c.state.peakLifePercent, 50);
+      expect(c.state.minLifePercent, 30);
     });
   });
 
-  group('buildSummary() (architecture v3 §2) — RunSummary construction from the ended state', () {
+  group('buildSummary() (architecture v3 §2, revised by v6 §5.4) — '
+      'RunSummary construction from the ended state', () {
     Future<ProviderContainer> buildContainerWithName(
       String name, {
       Map<String, Object> extraPrefs = const {},
@@ -1304,9 +1362,9 @@ void main() {
       final container = await buildContainerWithName('Aman', extraPrefs: {kKeyTotalRunsPlayed: 1, kKeyTotalDeaths: 0});
       final c = container.read(runControllerProvider.notifier);
       c.arm();
-      c.state = c.state.copyWith(lifePercent: 5);
+      c.state = c.state.copyWith(lifePercent: 10);
 
-      forceStop(c, missOffset); // 5 - 5 = 0 -> death
+      forceStop(c, missOffset); // 10 - 10 = 0 -> death
       c.advanceAfterDwell();
 
       final summary = c.buildSummary();
@@ -1324,35 +1382,35 @@ void main() {
         'min/peak reflect the run, and an empty stored name renders anonymous', () async {
       final container = await buildContainerWithName('');
       final c = container.read(runControllerProvider.notifier);
-      c.state = c.state.copyWith(phase: RunPhase.finalBandArmed, lifePercent: 4);
+      c.state = c.state.copyWith(phase: RunPhase.finalBandArmed, lifePercent: 10);
 
-      forceStop(c, perfectOffset); // non-miss in final band -> survived
+      forceStop(c, hitOffset); // non-miss in final band -> survived
       c.advanceAfterDwell();
 
       final summary = c.buildSummary();
 
       expect(summary.outcome, RunOutcome.survived);
+      expect(summary.minLifePercent, 10);
       expect(summary.playerName, '');
       expect(summary.isAnonymous, isTrue);
     });
 
-    test('an eternal outcome: perfectCount matches the configured '
-        'eternalPerfectCount (3 perfects in a row from a fresh run)', () async {
+    test('an eternal outcome: attemptCount matches the configured '
+        'eternalHitCount (12 hits in a row from a fresh run, architecture '
+        'v6 §5.4 renaming perfectCount -> attemptCount)', () async {
       final container = await buildContainerWithName('Zoe');
       final c = container.read(runControllerProvider.notifier);
       c.arm();
 
-      forceStop(c, perfectOffset);
-      c.advanceAfterDwell();
-      forceStop(c, perfectOffset);
-      c.advanceAfterDwell();
-      forceStop(c, perfectOffset);
-      c.advanceAfterDwell(); // -> eternal
+      for (var i = 0; i < RunConfig.defaults.eternalHitCount; i++) {
+        forceStop(c, hitOffset);
+        c.advanceAfterDwell();
+      }
 
       final summary = c.buildSummary();
 
       expect(summary.outcome, RunOutcome.eternal);
-      expect(summary.perfectCount, 3);
+      expect(summary.attemptCount, 12);
       expect(summary.playerName, 'Zoe');
     });
   });

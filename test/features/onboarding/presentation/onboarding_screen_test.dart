@@ -99,6 +99,23 @@ void main() {
     });
   });
 
+  group('OnboardingScreen - card 2 body copy (architecture v6 D16/§6.5, §12 '
+      'tester flag 10) — "Nail it, gain life" would be false under the '
+      'binary hit/miss scoring model; the card must teach the new rule', () {
+    testWidgets('card 2 reads the new "stay safe" / "-10%" copy, not the '
+        'retired "gain life" copy', (tester) async {
+      await _pumpOnboarding(tester);
+
+      await _tapButtonLabelled(tester, 'Next'); // page 0 -> 1 (card 2)
+
+      expect(
+        find.text("Nail it, stay safe. Miss, lose 10%. Hit 0% and you're gone."),
+        findsOneWidget,
+      );
+      expect(find.textContaining('gain life'), findsNothing);
+    });
+  });
+
   group('OnboardingScreen - button label progression', () {
     testWidgets(
       'labels progress Next -> Next -> Got it -> Start playing',

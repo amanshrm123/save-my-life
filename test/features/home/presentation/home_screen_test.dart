@@ -71,7 +71,7 @@ void main() {
         lifetimeDeaths: 0,
         peakLifePercent: 50,
         minLifePercent: 50,
-        perfectCount: 0,
+        attemptCount: 0,
         playerName: '',
       ),
     );

@@ -220,8 +220,8 @@ void main() {
           );
 
           // Pin the target so this genuine stop lands as a deterministic
-          // Perfect (see run_controller_test.dart's file doc for why this
-          // is the sanctioned technique for controlling tiers).
+          // Hit (see run_controller_test.dart's file doc for why this is
+          // the sanctioned technique for controlling tiers).
           c.state = c.state.copyWith(target: c.liveElapsed);
           c.registerStop();
 
@@ -231,7 +231,7 @@ void main() {
             reason: 'a stop meaningfully past minStopElapsedMs must be '
                 'accepted normally, never suppressed',
           );
-          expect(c.state.lastTier, StopTier.perfect);
+          expect(c.state.lastTier, StopTier.hit);
           expect(c.state.attemptIndex, 1);
         },
       );

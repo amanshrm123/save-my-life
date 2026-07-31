@@ -11,7 +11,7 @@ class RunSummary {
     required this.lifetimeDeaths,
     required this.peakLifePercent,
     required this.minLifePercent,
-    required this.perfectCount,
+    required this.attemptCount,
     required this.playerName,
   });
 
@@ -27,9 +27,9 @@ class RunSummary {
   final int peakLifePercent;
   final int minLifePercent;
 
-  /// The run's perfect-streak length at the moment it ended — used for the
-  /// Eternal card's "Perfect start · {perfectCount}/{eternalCount}".
-  final int perfectCount;
+  /// Total attempts taken this run (architecture v6 §5.4) — used for the
+  /// Eternal card's "Perfect start · {attemptCount}/{eternalHitCount}".
+  final int attemptCount;
 
   /// '' == anonymous -> the no-name card variant (architecture v3 §3.4).
   final String playerName;
@@ -40,6 +40,6 @@ class RunSummary {
   String toString() =>
       'RunSummary(outcome: $outcome, runNumber: $runNumber, '
       'lifetimeDeaths: $lifetimeDeaths, peak: $peakLifePercent, '
-      'min: $minLifePercent, perfectCount: $perfectCount, '
+      'min: $minLifePercent, attemptCount: $attemptCount, '
       'playerName: $playerName)';
 }

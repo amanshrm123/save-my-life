@@ -176,10 +176,10 @@ void burnPastMinStopElapsed() {
 /// controller's current live elapsed time, via the REAL `registerStop()` —
 /// the sanctioned `@visibleForTesting` `state`-setter technique this
 /// project's `run_controller_test.dart`/`play_loop_screen_test.dart` already
-/// use. Reserved for whenever a precise tier (Perfect/Hit) is required,
-/// since real wall-clock tap-to-tap timing cannot reliably land inside a
-/// 60ms/180ms band. Assumes the run just went live (`startRunning()` called
-/// immediately before this).
+/// use. Reserved for whenever a precise tier (Hit/Miss) is required, since
+/// real wall-clock tap-to-tap timing cannot reliably land inside the single
+/// 180ms band (architecture v6 D2). Assumes the run just went live
+/// (`startRunning()` called immediately before this).
 StopTier forceStop(RunController c, Duration offset) {
   burnPastMinStopElapsed();
   final base = c.liveElapsed;
@@ -188,7 +188,6 @@ StopTier forceStop(RunController c, Duration offset) {
   return c.state.lastTier!;
 }
 
-const perfectOffset = Duration.zero;
 const hitOffset = Duration(milliseconds: 100);
 const missOffset = Duration(seconds: 5);
 
@@ -203,9 +202,9 @@ Future<void> flushDwell(WidgetTester tester) async {
 /// Drives whatever run is currently live to a **death**, via genuine real
 /// taps on the arm plate and STOP button — deliberately real-time-driven,
 /// not the state-setter for the *timing* itself: real tap-to-tap latency in
-/// a test is always far below the `[2s, 6s]` target range, so a Miss (and,
-/// with life pre-set low, a consequent death) is reachable non-flakily
-/// without ever needing to pin `target`. Exercises the real
+/// a test is always far below the `2.00s`-`4.90s` target range, so a Miss
+/// (and, with life pre-set low, a consequent death) is reachable
+/// non-flakily without ever needing to pin `target`. Exercises the real
 /// `Listener`/`GestureDetector` input wiring at least once per call.
 ///
 /// Assumes `PlayLoopScreen` is current and past the countdown (call
@@ -213,8 +212,10 @@ Future<void> flushDwell(WidgetTester tester) async {
 Future<void> tapThroughToQuickDeath(WidgetTester tester) async {
   final c = runControllerOf(tester);
   // Any Miss is fatal from here — guarantees termination regardless of the
-  // randomized target, without pinning the target itself.
-  c.state = c.state.copyWith(lifePercent: 5);
+  // randomized target, without pinning the target itself. 10% is a
+  // genuinely reachable life value under the v6 economy (50/40/30/20/10/0),
+  // unlike the old 5%.
+  c.state = c.state.copyWith(lifePercent: 10);
   await tester.pump();
 
   // Both the start tap and the stop tap now land on the same merged
@@ -235,39 +236,43 @@ Future<void> tapThroughToQuickDeath(WidgetTester tester) async {
 }
 
 /// Forces the CURRENT run to end as `survived`, via the final-band
-/// sudden-death path: pins phase to `finalBandArmed` at low life, then a
-/// Perfect stop (via `forceStop` — real-time timing cannot reliably land
-/// inside the 60ms Perfect band).
+/// sudden-death path: pins phase to `finalBandArmed` at the (now reachable)
+/// 10% final-band life value, then a Hit stop (via `forceStop` — real-time
+/// timing cannot reliably land inside the 180ms Hit band).
 Future<void> forceEndSurvived(WidgetTester tester) async {
   final c = runControllerOf(tester);
-  c.state = c.state.copyWith(phase: RunPhase.finalBandArmed, lifePercent: 4);
+  c.state = c.state.copyWith(phase: RunPhase.finalBandArmed, lifePercent: 10);
   await tester.pump();
   c.startRunning();
-  forceStop(c, perfectOffset);
+  forceStop(c, hitOffset);
   await flushDwell(tester);
 }
 
-/// Forces the CURRENT run to end as `eternal`: 3 Perfect attempts in a row
-/// from a fresh `armed` state (architecture v2 §4's "first 3 attempts all
-/// Perfect"). Must be called on a genuinely fresh run (attemptIndex == 0).
+/// Forces the CURRENT run to end as `eternal`: `eternalHitCount` (12) Hit
+/// attempts in a row from a fresh `armed` state (architecture v6 D9/§5 —
+/// "first N attempts, none a Miss", redefined from the retired
+/// Perfect-streak mechanic). Must be called on a genuinely fresh run
+/// (attemptIndex == 0).
 Future<void> forceEndEternal(WidgetTester tester) async {
   final c = runControllerOf(tester);
   if (c.state.phase != RunPhase.armed) {
     c.state = c.state.copyWith(phase: RunPhase.armed);
     await tester.pump();
   }
-  for (var i = 0; i < 3; i++) {
+  for (var i = 0; i < RunConfig.defaults.eternalHitCount; i++) {
     c.startRunning();
-    forceStop(c, perfectOffset);
+    forceStop(c, hitOffset);
     await flushDwell(tester);
   }
 }
 
 /// Forces the CURRENT run to end as `death` directly via the state machine
-/// (a Miss that drains life to 0), without relying on real-tap timing.
+/// (a Miss that drains life to 0), without relying on real-tap timing. 10%
+/// is a genuinely reachable life value under the v6 economy
+/// (50/40/30/20/10/0), unlike the old 5%.
 Future<void> forceEndDeath(WidgetTester tester) async {
   final c = runControllerOf(tester);
-  c.state = c.state.copyWith(lifePercent: 5, phase: RunPhase.armed);
+  c.state = c.state.copyWith(lifePercent: 10, phase: RunPhase.armed);
   await tester.pump();
   c.startRunning();
   forceStop(c, missOffset);

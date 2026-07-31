@@ -3,10 +3,10 @@ import 'package:flutter/material.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../domain/run_config.dart';
 
-/// The 3-tier legend row ("Perfect +3% / Hit +2% / Miss -5%", design spec
-/// v1 §3.2 — architecture flag 1 resolved to 3 tiers, extrapolated beyond
-/// the mock's literal 2-pill layout). Wraps to 2 rows on narrow phones
-/// rather than shrinking/truncating labels.
+/// The 2-tier legend row ("Hit: safe / Miss: -10%", design spec v3 §3 —
+/// architecture v6 D14 reverting to the mock's literal 2-pill layout). The
+/// 3-pill layout this row used to have was itself the extrapolation beyond
+/// the mock; the 2-pill layout is canonical again.
 ///
 /// In the final band this row is fully replaced by a single "Nail it ->
 /// Survive" pill (design spec v1 §2.7) — never both together.
@@ -26,9 +26,8 @@ class LegendPills extends StatelessWidget {
       spacing: 8,
       runSpacing: 6,
       children: [
-        _Pill(label: 'Perfect +${config.perfectDelta}%'),
-        _Pill(label: 'Hit +${config.hitDelta}%'),
-        _Pill(label: 'Miss ${config.missDelta}%'),
+        const _Pill(label: 'Hit: safe'),
+        _Pill(label: 'Miss: ${config.missDelta}%'),
       ],
     );
   }

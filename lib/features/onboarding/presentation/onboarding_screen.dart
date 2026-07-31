@@ -155,7 +155,7 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen>
               emojiSemanticLabel: 'red heart',
               headline: 'Mind your life',
               body:
-                  'Nail it, gain life. Miss, lose it. Hit 0% and you\'re gone.',
+                  'Nail it, stay safe. Miss, lose 10%. Hit 0% and you\'re gone.',
               dotIndex: 1,
               buttonLabel: 'Next',
               onButtonPressed: () => _goToPage(2),

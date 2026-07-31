@@ -7,7 +7,7 @@ import 'feedback.dart';
 
 /// The 3 short SFX shipped at `assets/sfx/*.wav` (architecture v3 §12 flag 3
 /// — synthesized, zero licensing risk): `tap` (arm/UI feedback), `hit`
-/// (Perfect/Hit stop, doubles for Perfect), `miss` (Miss stop).
+/// (Hit stop), `miss` (Miss stop).
 abstract class AudioService {
   Future<void> playTap();
   Future<void> playHit();

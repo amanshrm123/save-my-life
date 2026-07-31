@@ -4,15 +4,17 @@ import '../../../../core/theme/app_theme.dart';
 import '../../domain/run_config.dart';
 import '../../domain/run_state.dart';
 
-/// The PERFECT/HIT/MISS flash pill (design spec v1 §1.4, §2.5/§2.6). Only
-/// meaningful while `state.phase == RunPhase.stopped`.
+/// The HIT/MISS flash pill (design spec v3 §6, revising v1 §1.4/§2.5-§2.6
+/// for architecture v6's binary scoring). Only meaningful while
+/// `state.phase == RunPhase.stopped`.
 ///
-/// Perfect and Hit share the identical "good" visual (green pill) per
-/// design spec v1 §2.5 — the mock's `.flash` CSS has no third variant, they
-/// differ only in label text. The final-band terminal stop (design spec v1
-/// §2.7's "missing frame", filled in there) shows "SURVIVED"/"MISS" with no
-/// percentage label instead, since no incremental life delta is applied in
-/// sudden death.
+/// `HIT` is bare — no percentage, no "+0%" — for the same reason the legend
+/// pill says "safe": there is no delta to report (architecture v6 §6.4).
+/// The final-band terminal stop (design spec v1 §2.7's "missing frame",
+/// filled in there) shows "SURVIVED"/"MISS" with no percentage label
+/// instead, unchanged, even though a delta is now applied on that path too
+/// (v6 §4.4) — that frame's job is to announce the ending, not the
+/// arithmetic.
 class OutcomeFlash extends StatelessWidget {
   const OutcomeFlash({super.key, required this.state, this.config = RunConfig.defaults});
 
@@ -34,10 +36,8 @@ class OutcomeFlash extends StatelessWidget {
     } else {
       good = tier != StopTier.miss;
       switch (tier) {
-        case StopTier.perfect:
-          label = 'PERFECT +${config.perfectDelta}%';
         case StopTier.hit:
-          label = 'HIT +${config.hitDelta}%';
+          label = 'HIT';
         case StopTier.miss:
           label = 'MISS ${config.missDelta}%';
       }
@@ -56,6 +56,8 @@ class OutcomeFlash extends StatelessWidget {
       },
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 5),
+        constraints: const BoxConstraints(minWidth: 90),
+        alignment: Alignment.center,
         decoration: BoxDecoration(
           color: good ? AppColors.green : AppColors.red,
           borderRadius: BorderRadius.circular(20),

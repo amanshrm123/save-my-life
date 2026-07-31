@@ -102,7 +102,6 @@ class _PlayLoopScreenState extends ConsumerState<PlayLoopScreen>
   void _onStopped(RunState state) {
     final audio = ref.read(audioServiceProvider);
     switch (state.lastTier) {
-      case StopTier.perfect:
       case StopTier.hit:
         AppFeedback.mediumImpactIfEnabled();
         unawaited(audio.playHit());
@@ -529,11 +528,13 @@ class _StoppedContent extends StatelessWidget {
     );
   }
 
-  /// "Stopped" for Perfect/Hit, or a final-band terminal stop (design v1
-  /// §2.7's gap-fill keeps that frame's label plain, matching its SURVIVED/
-  /// MISS flash with no percentage). A normal Miss restores the mockup's
-  /// literal "Stopped · off by X" gap readout (design v1 §2.6, re-resolved
-  /// under `SS:CC`) — the absolute error in seconds, 2 decimal places.
+  /// "Stopped" for a Hit, or a final-band terminal stop (design v1 §2.7's
+  /// gap-fill keeps that frame's label plain, matching its SURVIVED/MISS
+  /// flash with no percentage). A normal Miss restores the mockup's
+  /// literal "Stopped · off by X" gap readout (design v1 §2.6) — the
+  /// absolute error in seconds, 2 decimal places; this delta stays a plain
+  /// seconds decimal, unaffected by the `M:SS.CC` clock format change
+  /// (architecture v6 §2.4).
   String _statusLabel(StopTier? tier) {
     if (tier != StopTier.miss || state.lastStopWasFinalBand) return 'Stopped';
     final stopped = state.lastStopElapsed ?? Duration.zero;

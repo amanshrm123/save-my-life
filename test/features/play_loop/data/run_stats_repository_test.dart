@@ -22,7 +22,7 @@ void main() {
       lifetimeDeaths: 0,
       peakLifePercent: peakLifePercent,
       minLifePercent: 0,
-      perfectCount: 0,
+      attemptCount: 0,
       playerName: '',
     );
   }
@@ -34,7 +34,7 @@ void main() {
       lifetimeDeaths: 0,
       peakLifePercent: peakLifePercent,
       minLifePercent: 0,
-      perfectCount: 0,
+      attemptCount: 0,
       playerName: '',
     );
   }
