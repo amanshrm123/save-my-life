@@ -1,4 +1,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Remote outcome-story content (docs/architecture/remote-story-config-*.md):
+         a single unauthenticated HTTPS GET of a static ~24 KB JSON file, at most
+         once per 6 hours per device. No user data is transmitted, no analytics,
+         no tracking, no third-party SDK. The app is fully functional offline via
+         assets/stories_bundled.json. -->
+    <uses-permission android:name="android.permission.INTERNET" />
     <!-- Daily-reminder notifications (architecture v3 §8): Android 13+
          requires runtime consent for POST_NOTIFICATIONS, requested via the
          flutter_local_notifications plugin. RECEIVE_BOOT_COMPLETED lets the
