@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timing_tap/app.dart';
 import 'package:timing_tap/core/persistence/preferences_service.dart';
@@ -10,11 +12,23 @@ import 'package:timing_tap/features/notifications/application/reminder_service_n
 import 'package:timing_tap/features/notifications/state/reminder_providers.dart';
 import 'package:timing_tap/features/home/presentation/widgets/stat_tile.dart';
 import 'package:timing_tap/features/onboarding/state/onboarding_providers.dart';
+import 'package:timing_tap/features/outcome/state/outcome_providers.dart';
 import 'package:timing_tap/features/play_loop/domain/run_config.dart';
 import 'package:timing_tap/features/play_loop/domain/run_state.dart';
 import 'package:timing_tap/features/play_loop/presentation/play_loop_screen.dart';
 import 'package:timing_tap/features/play_loop/presentation/widgets/primary_action_button.dart';
 import 'package:timing_tap/features/play_loop/state/play_loop_providers.dart';
+
+/// A `MockClient` that answers every request with an immediate 404 and no
+/// real network I/O. Used as the default `httpClientProvider` override for
+/// every integration test (see [realApp]) so pumping the real app — which
+/// warms up the story pool from `SplashScreen` — never dials out to the
+/// placeholder `kStoryConfigUrl`. A 404 cleanly exercises
+/// `StoryPoolRepository.refreshIfStale`'s "fetch failed, fall through to the
+/// cached/bundled pool" path without any DNS/HTTPS round trip or "Timer is
+/// still pending" teardown flake risk.
+http.Client fakeHttpClient() =>
+    MockClient((_) async => http.Response('not found', 404));
 
 /// Shared plumbing for the cross-feature integration tests (see
 /// `test/integration/*_test.dart`). Every real-app scenario in this project
@@ -47,11 +61,21 @@ Future<PreferencesService> mockPrefsService([
 ///     under `flutter test` (matches `settings_screen_test.dart`'s existing
 ///     pattern). The reminder toggle defaults to off, so this is a pure
 ///     defensive measure — no scenario here relies on real scheduling.
-Widget realApp(PreferencesService service, {List<Override> extraOverrides = const []}) {
+///   - `httpClientProvider` -> [fakeHttpClient], since `SplashScreen` warms
+///     up the story pool (`storyPoolProvider`) on every real-app pump; a
+///     scenario that needs to assert on a specific fetch/refresh outcome can
+///     still pass its own `httpClientProvider` override via
+///     [extraOverrides] (later entries win — see `Riverpod`'s override
+///     resolution).
+Widget realApp(
+  PreferencesService service, {
+  List<Override> extraOverrides = const [],
+}) {
   return ProviderScope(
     overrides: [
       preferencesServiceProvider.overrideWithValue(service),
       reminderServiceProvider.overrideWithValue(const NoopReminderService()),
+      httpClientProvider.overrideWithValue(fakeHttpClient()),
       ...extraOverrides,
     ],
     child: const App(),
@@ -61,7 +85,9 @@ Widget realApp(PreferencesService service, {List<Override> extraOverrides = cons
 /// Pumps the real app and settles past the splash screen's brand-beat delay
 /// (1400ms progress + 175ms hold, `splash_screen.dart`) onto whatever screen
 /// the seeded prefs route to (onboarding or Home).
-Future<void> pumpRealAppPastSplash(WidgetTester tester, PreferencesService service, {
+Future<void> pumpRealAppPastSplash(
+  WidgetTester tester,
+  PreferencesService service, {
   List<Override> extraOverrides = const [],
 }) async {
   await tester.pumpWidget(realApp(service, extraOverrides: extraOverrides));
@@ -107,7 +133,10 @@ Future<void> tapPlayFromHome(WidgetTester tester) async {
 String statTileValue(WidgetTester tester, String label) {
   final tile = tester
       .widgetList<StatTile>(find.byType(StatTile))
-      .firstWhere((t) => t.label == label, orElse: () => throw StateError('no StatTile labelled "$label" found'));
+      .firstWhere(
+        (t) => t.label == label,
+        orElse: () => throw StateError('no StatTile labelled "$label" found'),
+      );
   return tile.value;
 }
 

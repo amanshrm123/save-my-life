@@ -10,15 +10,21 @@ import 'package:timing_tap/features/play_loop/domain/run_summary.dart';
 /// deleted `outcome_providers_test.dart`'s coverage of the old
 /// `outcomeCardContentProvider` (which built the now-removed
 /// catalog/sub-line content synchronously). The new provider's whole job is
-/// the min-2s `Future.wait` floor and family-identity caching, both
-/// regression-critical per this session's design/architecture docs.
+/// the `kMinStoryLoadDuration` `Future.wait` floor and family-identity
+/// caching, both regression-critical per this session's design/architecture
+/// docs.
+///
+/// Timings below are expressed relative to `kMinStoryLoadDuration` (1000ms
+/// as of remote-story-config-implementation-spec §5.1, down from the
+/// original 2s) rather than a hardcoded literal, so this file keeps its
+/// meaning if the floor is ever tuned again.
 ///
 /// These use `testWidgets` (not plain `test()`) even though no widget is
 /// pumped, specifically to run inside `flutter_test`'s fake-async test zone
-/// so `tester.pump(duration)` can deterministically advance the 2-second
-/// `Future.delayed` floor without genuinely waiting 2 real seconds per test
-/// — the same technique `test/integration/*_test.dart` relies on implicitly
-/// via `pumpAndSettle`.
+/// so `tester.pump(duration)` can deterministically advance the
+/// `Future.delayed` floor without genuinely waiting that long in real time
+/// per test — the same technique `test/integration/*_test.dart` relies on
+/// implicitly via `pumpAndSettle`.
 void main() {
   // Deliberately NOT `const`: `RunSummary`'s constructor is const-capable,
   // and two `const` calls with identical arguments would canonicalize to
@@ -39,77 +45,82 @@ void main() {
     );
   }
 
+  testWidgets('an instant-resolving fetch still does not resolve before the '
+      'kMinStoryLoadDuration floor (max(fetch, floor), not near-instant)', (
+    tester,
+  ) async {
+    final container = ProviderContainer(
+      overrides: [
+        outcomeStoryServiceProvider.overrideWithValue(_InstantFakeService()),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    var resolved = false;
+    final sub = container.listen<AsyncValue<OutcomeStoryContent>>(
+      outcomeStoryProvider(summary()),
+      (previous, next) {
+        if (next is AsyncData<OutcomeStoryContent>) resolved = true;
+      },
+    );
+    addTearDown(sub.close);
+
+    await tester.pump(); // let the fetch's own (instant) future settle
+    expect(
+      resolved,
+      isFalse,
+      reason: 'the fetch resolved instantly, but the floor must still hold',
+    );
+
+    await tester.pump(
+      kMinStoryLoadDuration - const Duration(milliseconds: 100),
+    );
+    expect(resolved, isFalse, reason: 'still short of the floor');
+
+    await tester.pump(const Duration(milliseconds: 150));
+    expect(resolved, isTrue, reason: 'now past the floor');
+  });
+
+  testWidgets('total resolve time is max(fetchTime, kMinStoryLoadDuration), not '
+      'fetchTime + floor — a fetch that itself takes 500ms still resolves by '
+      '~the floor, not floor + 500ms', (tester) async {
+    final container = ProviderContainer(
+      overrides: [
+        outcomeStoryServiceProvider.overrideWithValue(
+          _DelayedFakeService(const Duration(milliseconds: 500)),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    var resolved = false;
+    final sub = container.listen<AsyncValue<OutcomeStoryContent>>(
+      outcomeStoryProvider(summary()),
+      (previous, next) {
+        if (next is AsyncData<OutcomeStoryContent>) resolved = true;
+      },
+    );
+    addTearDown(sub.close);
+
+    // If this were fetch + floor (1500ms), pumping only floor + 100ms would
+    // leave it unresolved. Under the correct max() semantics it must
+    // already be resolved by then (the fetch's own 500ms ran concurrently
+    // with, and finished well inside, the 1000ms floor).
+    await tester.pump(
+      kMinStoryLoadDuration + const Duration(milliseconds: 100),
+    );
+    expect(
+      resolved,
+      isTrue,
+      reason:
+          'Future.wait must run the fetch and the floor delay concurrently, not '
+          'sequentially — a summed wait would still be pending here',
+    );
+  });
+
   testWidgets(
-    'an instant-resolving fetch still does not resolve before the 2s floor '
-    '(max(fetch, 2s), not near-instant)',
-    (tester) async {
-      final container = ProviderContainer(
-        overrides: [outcomeStoryServiceProvider.overrideWithValue(_InstantFakeService())],
-      );
-      addTearDown(container.dispose);
-
-      var resolved = false;
-      final sub = container.listen<AsyncValue<OutcomeStoryContent>>(
-        outcomeStoryProvider(summary()),
-        (previous, next) {
-          if (next is AsyncData<OutcomeStoryContent>) resolved = true;
-        },
-      );
-      addTearDown(sub.close);
-
-      await tester.pump(); // let the fetch's own (instant) future settle
-      expect(
-        resolved,
-        isFalse,
-        reason: 'the fetch resolved instantly, but the 2s floor must still hold',
-      );
-
-      await tester.pump(const Duration(milliseconds: 1900));
-      expect(resolved, isFalse, reason: 'still short of the 2s floor');
-
-      await tester.pump(const Duration(milliseconds: 150));
-      expect(resolved, isTrue, reason: 'now past the 2s floor');
-    },
-  );
-
-  testWidgets(
-    'total resolve time is max(fetchTime, 2s), not fetchTime + 2s — a fetch '
-    'that itself takes 500ms still resolves by ~2s, not ~2.5s',
-    (tester) async {
-      final container = ProviderContainer(
-        overrides: [
-          outcomeStoryServiceProvider.overrideWithValue(
-            _DelayedFakeService(const Duration(milliseconds: 500)),
-          ),
-        ],
-      );
-      addTearDown(container.dispose);
-
-      var resolved = false;
-      final sub = container.listen<AsyncValue<OutcomeStoryContent>>(
-        outcomeStoryProvider(summary()),
-        (previous, next) {
-          if (next is AsyncData<OutcomeStoryContent>) resolved = true;
-        },
-      );
-      addTearDown(sub.close);
-
-      // If this were fetch + 2s (2.5s total), pumping only 2.1s would leave
-      // it unresolved. Under the correct max() semantics it must already be
-      // resolved by 2.1s (the fetch's own 500ms ran concurrently).
-      await tester.pump(const Duration(milliseconds: 2100));
-      expect(
-        resolved,
-        isTrue,
-        reason: 'Future.wait must run the fetch and the 2s delay concurrently, not '
-            'sequentially — a summed 2.5s wait would still be pending here',
-      );
-    },
-  );
-
-  testWidgets(
-    'a slow fetch (3s) still governs the total time — the 2s floor never '
-    'truncates a legitimately slower real fetch',
+    'a slow fetch (3s, well past kMinStoryLoadDuration) still governs the '
+    'total time — the floor never truncates a legitimately slower real fetch',
     (tester) async {
       final container = ProviderContainer(
         overrides: [
@@ -129,10 +140,17 @@ void main() {
       );
       addTearDown(sub.close);
 
-      await tester.pump(const Duration(milliseconds: 2100));
-      expect(resolved, isFalse, reason: 'the fetch itself has not completed yet');
+      // Past the floor (1200ms) but well short of the 3s fetch.
+      await tester.pump(
+        kMinStoryLoadDuration + const Duration(milliseconds: 900),
+      );
+      expect(
+        resolved,
+        isFalse,
+        reason: 'the fetch itself has not completed yet',
+      );
 
-      await tester.pump(const Duration(milliseconds: 1000));
+      await tester.pump(const Duration(milliseconds: 2100));
       expect(resolved, isTrue, reason: 'now past the slower 3s fetch time');
     },
   );
@@ -164,7 +182,11 @@ void main() {
       // must not trigger a second fetch/roll.
       final second = container.read(outcomeStoryProvider(theSummary)).value;
       expect(second, same(first));
-      expect(fake.calls, 1, reason: 'rewatching the same RunSummary instance must not re-fetch');
+      expect(
+        fake.calls,
+        1,
+        reason: 'rewatching the same RunSummary instance must not re-fetch',
+      );
 
       // A second, separately-listened read (as a different consumer would
       // do) must also see the cached value, not trigger another fetch.
@@ -200,7 +222,11 @@ void main() {
       addTearDown(subB.close);
 
       await tester.pump(const Duration(seconds: 3));
-      expect(fake.calls, 2, reason: 'two distinct RunSummary instances -> two independent fetches');
+      expect(
+        fake.calls,
+        2,
+        reason: 'two distinct RunSummary instances -> two independent fetches',
+      );
     },
   );
 }

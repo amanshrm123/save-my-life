@@ -6,7 +6,13 @@ library;
 
 /// Current prefs schema version. Bump + add migration handling in
 /// [PreferencesService] if the meaning of any key below ever changes shape.
-const int kPrefsSchemaVersion = 1;
+///
+/// Bumped 1 -> 2 for the remote-story-config keys below. No migration code is
+/// needed: every new key's absent-value default (empty list / empty string /
+/// epoch-zero) is already the correct fresh-install state, and a v1 install
+/// upgrading to v2 correctly starts with an empty story cycle and a cold
+/// cache.
+const int kPrefsSchemaVersion = 2;
 
 /// Prefs schema version key. int, default [kPrefsSchemaVersion].
 const String kKeySchemaVersion = 'schema_version';
@@ -59,3 +65,31 @@ const String kKeyReminderOptInShown = 'reminder_opt_in_shown';
 /// (never picked — Home shows the "Pick your look" hint pill until the
 /// first commit from `/avatar-picker`).
 const String kKeyAvatarId = 'avatar_id';
+
+// --- Remote story config: dedup cycle (options §8.2) ---
+
+/// IDs of story beats already shown in the current cycle. StringList, default [].
+const String kKeySeenStoryIdsDeath = 'seen_story_ids_death';
+const String kKeySeenStoryIdsSurvived = 'seen_story_ids_survived';
+const String kKeySeenStoryIdsEternal = 'seen_story_ids_eternal';
+
+/// The single most recently shown beat ID per tier, used only to avoid an
+/// immediate repeat across a cycle-reset boundary. String, default ''.
+const String kKeyLastStoryIdDeath = 'last_story_id_death';
+const String kKeyLastStoryIdSurvived = 'last_story_id_survived';
+const String kKeyLastStoryIdEternal = 'last_story_id_eternal';
+
+// --- Remote story config: remote payload cache (implementation spec §2.4 R5) ---
+
+/// The last successfully-PARSED remote payload, verbatim. String, default ''.
+/// Cold-start bootstrap only — never the runtime source of truth. Only ever
+/// written after StoryPoolCodec.decode has already succeeded on it.
+const String kKeyStoryPoolCache = 'story_pool_cache';
+
+/// ETag of the cached payload, sent as If-None-Match. String, default ''.
+const String kKeyStoryPoolEtag = 'story_pool_etag';
+
+/// Epoch millis of the last SUCCESSFUL fetch (200 or 304). int, default 0.
+/// Not written on failure, so a failing CDN is retried next session rather
+/// than suppressed for the TTL.
+const String kKeyStoryPoolFetchedAt = 'story_pool_fetched_at';

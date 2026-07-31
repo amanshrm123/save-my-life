@@ -9,6 +9,7 @@ import '../../../core/routing/app_routes.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../home/presentation/home_screen.dart';
 import '../../notifications/state/reminder_providers.dart';
+import '../../outcome/state/outcome_providers.dart';
 import '../domain/player_profile.dart';
 import '../state/onboarding_providers.dart';
 import 'onboarding_screen.dart';
@@ -56,6 +57,14 @@ class _SplashScreenState extends ConsumerState<SplashScreen>
     // forget, never gates navigation; a failed/no-op reschedule is swallowed
     // by `ReminderController`/`ReminderService` themselves.
     unawaited(ref.read(reminderControllerProvider.notifier).reconcile());
+
+    // Warm the remote outcome-story content pool (remote-story-config-
+    // implementation-spec §5.4/R7) — fire-and-forget, never gates
+    // navigation. Resolves from cache/asset in a few ms inside this screen's
+    // existing brand-beat window; the background network refresh continues
+    // across the navigation. The outcome card is at minimum two screens and
+    // one full run away, so there's zero risk of a cold card.
+    unawaited(ref.read(storyPoolProvider.future));
 
     final results = await Future.wait<Object?>([
       profileFuture,

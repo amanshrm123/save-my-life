@@ -9,6 +9,7 @@ import '../../../core/widgets/screen_header.dart';
 import '../../avatar/state/avatar_providers.dart';
 import '../../notifications/state/reminder_providers.dart';
 import '../../onboarding/state/onboarding_providers.dart';
+import '../../outcome/state/outcome_providers.dart';
 import '../../progression/state/stats_providers.dart';
 import 'widgets/edit_name_dialog.dart';
 import 'widgets/reset_confirm_dialog.dart';
@@ -78,6 +79,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     try {
       await ref.read(reminderControllerProvider.notifier).disable();
       await ref.read(preferencesServiceProvider).clearAll();
+      // §6.2 "Settings-reset bug" fix: `clearAll()` wipes the nine
+      // remote-story-config prefs keys, but `StoryCycleStore` hydrated once
+      // in its constructor and is session-scoped, so its in-memory copy
+      // would otherwise stay stale-but-nonempty after this reset.
+      ref.read(storyCycleStoreProvider).reset();
     } catch (_) {
       // Swallow — still proceed to the teardown navigation regardless.
     }

@@ -1,26 +1,41 @@
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:timing_tap/features/outcome/domain/story_beat.dart';
+import 'package:timing_tap/features/outcome/domain/story_pool.dart';
+import 'package:timing_tap/features/outcome/domain/story_pool_codec.dart';
 import 'package:timing_tap/features/outcome/domain/story_renderer.dart';
-import 'package:timing_tap/features/outcome/domain/survived_beats.dart';
 
-/// Pure-Dart coverage for `StoryRenderer.render` (architecture v4 §1) — the
-/// `{min}`/`{peak}` substitution layer that replaces the old
-/// `FlavorSelector.render()`'s single `{name}` substitution. Deliberately
-/// pins the contract that `{name}` survives UNTOUCHED (so the widget layer
-/// can color the name span) while `{min}`/`{peak}` get substituted eagerly
-/// here, from `RunSummary` stats, in all three `StoryBeat` fields.
+/// Pure-Dart coverage for `StoryRenderer.render` (architecture v4 §1;
+/// remote-story-config-implementation-spec §9.6) — the `{min}`/`{peak}`
+/// substitution layer that replaces the old `FlavorSelector.render()`'s
+/// single `{name}` substitution. Deliberately pins the contract that
+/// `{name}` survives UNTOUCHED (so the widget layer can color the name
+/// span) while `{min}`/`{peak}` get substituted eagerly here, from
+/// `RunSummary` stats, in all three `StoryBeat` fields — and that `id`
+/// (required since the remote-story-config feature) survives untouched too.
+///
+/// The `survivedBeats`-sourced group at the bottom now parses its fixtures
+/// from the real bundled asset via `StoryPoolCodec.decode`, instead of the
+/// deleted `survived_beats.dart` Dart list — both go through the same one
+/// parse path, so this stays representative of production content.
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   const renderer = StoryRenderer();
 
   group('{name} is deliberately left un-substituted', () {
     test('a {name} placeholder in `named` survives render() untouched', () {
       const beat = StoryBeat(
+        id: 'death_001',
         headline: 'Blinked. Gone.',
         named: '{name} blinked at the exact wrong moment.',
         anonymous: 'Blinked at the exact wrong moment.',
       );
 
-      final rendered = renderer.render(beat, minLifePercent: 10, peakLifePercent: 90);
+      final rendered = renderer.render(
+        beat,
+        minLifePercent: 10,
+        peakLifePercent: 90,
+      );
 
       expect(rendered.named, contains('{name}'));
       expect(rendered.named, '{name} blinked at the exact wrong moment.');
@@ -30,26 +45,56 @@ void main() {
         'in authored content, but the renderer contract is field-agnostic) '
         'is also left untouched, not silently stripped', () {
       const beat = StoryBeat(
+        id: 'death_002',
         headline: 'Test',
         named: '{name} did a thing.',
-        anonymous: 'Even {name} would not do this, but if authored, it survives.',
+        anonymous:
+            'Even {name} would not do this, but if authored, it survives.',
       );
 
-      final rendered = renderer.render(beat, minLifePercent: 0, peakLifePercent: 0);
+      final rendered = renderer.render(
+        beat,
+        minLifePercent: 0,
+        peakLifePercent: 0,
+      );
 
       expect(rendered.anonymous, contains('{name}'));
+    });
+  });
+
+  group('id is preserved untouched through render()', () {
+    test('render() threads the original beat id through unchanged', () {
+      const beat = StoryBeat(
+        id: 'eternal_003',
+        headline: 'Peaked at {peak}%.',
+        named: '{name} peaked at {peak}%.',
+        anonymous: 'Peaked at {peak}%.',
+      );
+
+      final rendered = renderer.render(
+        beat,
+        minLifePercent: 5,
+        peakLifePercent: 88,
+      );
+
+      expect(rendered.id, 'eternal_003');
     });
   });
 
   group('{min}/{peak} ARE substituted correctly from RunSummary stats', () {
     test('{min} substitutes in the headline', () {
       const beat = StoryBeat(
+        id: 'survived_001',
         headline: 'Saved at {min}%.',
         named: '{name} found the exact instant with nothing left to spare.',
         anonymous: 'Found the exact instant with nothing left to spare.',
       );
 
-      final rendered = renderer.render(beat, minLifePercent: 3, peakLifePercent: 71);
+      final rendered = renderer.render(
+        beat,
+        minLifePercent: 3,
+        peakLifePercent: 71,
+      );
 
       expect(rendered.headline, 'Saved at 3%.');
     });
@@ -58,12 +103,17 @@ void main() {
         'pooled beat, but the renderer must still wire it correctly for '
         'forward-compatibility per architecture v4 §1)', () {
       const beat = StoryBeat(
+        id: 'death_003',
         headline: 'Peaked at {peak}%, then it all went wrong.',
         named: '{name} peaked at {peak}%.',
         anonymous: 'Peaked at {peak}%.',
       );
 
-      final rendered = renderer.render(beat, minLifePercent: 5, peakLifePercent: 88);
+      final rendered = renderer.render(
+        beat,
+        minLifePercent: 5,
+        peakLifePercent: 88,
+      );
 
       expect(rendered.headline, 'Peaked at 88%, then it all went wrong.');
       expect(rendered.named, '{name} peaked at 88%.');
@@ -73,12 +123,17 @@ void main() {
     test('{min} and {peak} both substitute correctly in the SAME field, '
         'independently', () {
       const beat = StoryBeat(
+        id: 'death_004',
         headline: 'From {peak}% down to {min}% and still alive.',
         named: '{name} rode it from {peak}% down to {min}%.',
         anonymous: 'Rode it from {peak}% down to {min}%.',
       );
 
-      final rendered = renderer.render(beat, minLifePercent: 2, peakLifePercent: 97);
+      final rendered = renderer.render(
+        beat,
+        minLifePercent: 2,
+        peakLifePercent: 97,
+      );
 
       expect(rendered.headline, 'From 97% down to 2% and still alive.');
       expect(rendered.named, '{name} rode it from 97% down to 2%.');
@@ -88,38 +143,63 @@ void main() {
     test('{min} substitutes correctly in `named` alongside a surviving '
         '{name} placeholder — the two substitutions do not interfere', () {
       const beat = StoryBeat(
+        id: 'survived_002',
         headline: 'Calm, at {min}%.',
         named: '{name} found calm in the last possible heartbeat at {min}%.',
         anonymous: 'Found calm in the last possible heartbeat.',
       );
 
-      final rendered = renderer.render(beat, minLifePercent: 1, peakLifePercent: 50);
+      final rendered = renderer.render(
+        beat,
+        minLifePercent: 1,
+        peakLifePercent: 50,
+      );
 
-      expect(rendered.named, '{name} found calm in the last possible heartbeat at 1%.');
+      expect(
+        rendered.named,
+        '{name} found calm in the last possible heartbeat at 1%.',
+      );
       expect(rendered.named, contains('{name}'));
       expect(rendered.named, isNot(contains('{min}')));
     });
 
     test('a beat with no placeholders at all round-trips unchanged', () {
       const beat = StoryBeat(
+        id: 'death_005',
         headline: 'Never wobbled once.',
         named: '{name} never even wobbled.',
         anonymous: 'Never even wobbled.',
       );
 
-      final rendered = renderer.render(beat, minLifePercent: 40, peakLifePercent: 100);
+      final rendered = renderer.render(
+        beat,
+        minLifePercent: 40,
+        peakLifePercent: 100,
+      );
 
       expect(rendered.headline, 'Never wobbled once.');
       expect(rendered.anonymous, 'Never even wobbled.');
     });
   });
 
-  group('name-free (anonymous) story path', () {
+  group('name-free (anonymous) story path — against the real bundled pool', () {
+    late List<StoryBeat> survivedBeats;
+
+    setUpAll(() async {
+      final raw = await rootBundle.loadString('assets/stories_bundled.json');
+      final StoryPool pool = StoryPoolCodec.decode(raw);
+      survivedBeats = pool.survived.beats;
+    });
+
     test('the anonymous field never carries a {name} placeholder for any '
         'real pooled survived beat, and still substitutes {min} where '
         'authored', () {
       for (final beat in survivedBeats) {
-        final rendered = renderer.render(beat, minLifePercent: 3, peakLifePercent: 80);
+        final rendered = renderer.render(
+          beat,
+          minLifePercent: 3,
+          peakLifePercent: 80,
+        );
         expect(rendered.anonymous, isNot(contains('{name}')));
         expect(rendered.anonymous, isNot(contains('{min}')));
         expect(rendered.anonymous, isNot(contains('{peak}')));
@@ -128,8 +208,14 @@ void main() {
 
     test('rendering the real "Saved at {min}%." survived beat produces the '
         'exact headline the mockup specifies', () {
-      final beat = survivedBeats.firstWhere((b) => b.headline.contains('{min}'));
-      final rendered = renderer.render(beat, minLifePercent: 3, peakLifePercent: 55);
+      final beat = survivedBeats.firstWhere(
+        (b) => b.headline.contains('{min}'),
+      );
+      final rendered = renderer.render(
+        beat,
+        minLifePercent: 3,
+        peakLifePercent: 55,
+      );
       expect(rendered.headline, 'Saved at 3%.');
     });
   });
