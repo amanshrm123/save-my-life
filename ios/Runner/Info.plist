@@ -24,6 +24,25 @@
 	<string>????</string>
 	<key>CFBundleVersion</key>
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
+	<!-- Restricted social share (architecture v5 §5/§10/§12 — mirrors the
+	     Android `<queries>` block in AndroidManifest.xml): required for
+	     `canOpenURL` to return an honest answer for Instagram/Facebook
+	     Stories rather than always `false` post-iOS 9's query-scheme
+	     restriction. Exactly the two schemes `SocialSharePlugin.swift`
+	     actually probes/opens (`schemeInstagram`/`schemeFacebook`) — no
+	     other scheme is ever passed to `canOpenURL`/`open`, so none of
+	     Meta's other companion schemes (Login/Graph API, Messenger) are
+	     declared here either. No CFBundleURLTypes entry is added here:
+	     `kFbAppId` (Dart side, `share_target.dart`) is supplied only at
+	     build time via `--dart-define=FB_APP_ID=...`, with no fixed value
+	     checked into this repo or into Android's build config either — a
+	     `fb<appid>`-style URL scheme would need to be generated at build
+	     time too, which is out of scope here. -->
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>instagram-stories</string>
+		<string>facebook-stories</string>
+	</array>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>UIApplicationSceneManifest</key>

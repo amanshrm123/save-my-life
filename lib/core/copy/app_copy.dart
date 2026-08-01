@@ -22,3 +22,11 @@ const String kToastCouldNotOpenFacebook = "Couldn't open Facebook";
 const String kToastInstagramNotInstalled = "Instagram isn't installed";
 const String kToastWhatsAppNotInstalled = "WhatsApp isn't installed";
 const String kToastFacebookNotInstalled = "Facebook isn't installed";
+
+/// iOS-specific WhatsApp copy (app-store-specialist flag): WhatsApp Status
+/// has no documented iOS share path at all — the tile is always dimmed
+/// there regardless of whether WhatsApp itself is installed on the device,
+/// so "isn't installed" is factually wrong (WhatsApp may well be installed;
+/// it's the Status-sharing capability that doesn't exist on this platform).
+const String kToastWhatsAppNotSupportedOnIOS =
+    "WhatsApp Status isn't supported on iPhone";

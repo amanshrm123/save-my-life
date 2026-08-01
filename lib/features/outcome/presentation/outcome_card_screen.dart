@@ -1,7 +1,8 @@
 import 'dart:async';
 import 'dart:io';
 
-import 'package:flutter/foundation.dart' show defaultTargetPlatform, kIsWeb;
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -129,12 +130,24 @@ class _OutcomeCardScreenState extends ConsumerState<OutcomeCardScreen>
       final file = await renderer.renderToFile(_cardKey);
       if (!mounted || file == null) return;
 
-      // The 3-tile sheet only makes sense on Android (it fires Android-only
-      // intents) — gate on the platform itself, not just `!kIsWeb`, so any
-      // other non-web target (none shipping today — iOS is deferred, no
-      // Apple ID) also honestly falls back to the plain share path instead
-      // of showing a sheet with all tiles permanently dimmed.
-      if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) {
+      // The 3-tile sheet fires native platform intents (Android) / pasteboard
+      // deep links (iOS) — web has neither (no `Intent`, no
+      // `UIPasteboard`/custom-scheme story composer), so web always falls
+      // back directly to the plain share path. Android always reaches the
+      // sheet regardless of `kFbAppId`: WhatsApp's tile works there
+      // independent of the Facebook App ID, so there's always at least one
+      // live tile. iOS is different — WhatsApp is *always* dimmed there (no
+      // iOS Status-share path exists at all), and with no `kFbAppId`
+      // configured (the default — no repo build config sets `FB_APP_ID`
+      // today) Instagram/Facebook are ALSO dimmed, which would leave every
+      // one of the sheet's 3 tiles dead with "More…" as the only working
+      // path. So iOS additionally falls back straight to the plain share
+      // path whenever `kFbAppId` is empty, exactly mirroring what iOS did
+      // before this feature existed, rather than showing a dead-end sheet.
+      // Any other/future platform (macOS/Windows/Linux) falls back the same
+      // way web does, rather than hitting an unimplemented MethodChannel.
+      if (kIsWeb ||
+          (defaultTargetPlatform == TargetPlatform.iOS && kFbAppId.isEmpty)) {
         await _shareViaMoreSheet(file);
         return;
       }

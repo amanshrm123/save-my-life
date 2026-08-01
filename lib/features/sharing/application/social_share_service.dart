@@ -37,7 +37,10 @@ class SocialShareResult {
 /// `MethodChannel` (architecture v5 §5/§10) — one `MethodChannel` covering
 /// exactly two responsibilities: probing which of the 3 targets are
 /// currently resolvable, and firing a single target's direct Story/Status
-/// intent. No listener/receiver/callback is ever registered on the Dart
+/// share (an Android `Intent` via `SocialSharePlugin.kt`, or an iOS
+/// pasteboard-write + custom-scheme deep link via `SocialSharePlugin.swift`
+/// — both ship today; this wrapper's own contract doesn't change per
+/// platform). No listener/receiver/callback is ever registered on the Dart
 /// side either — both calls are one-shot request/response (§11).
 class SocialShareService {
   const SocialShareService();

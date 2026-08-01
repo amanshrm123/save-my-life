@@ -111,6 +111,17 @@ void main() {
           isShareTargetDimmed(ShareTarget.instagramStory, const [], fbAppId: '1234567890'),
           isTrue,
         );
+        // Facebook's own symmetric case (tester-stage gap: only Instagram was
+        // exercised here previously) — this is exactly QA scenario (a): App
+        // ID configured but the target itself isn't actually resolvable
+        // (canOpenURL false / not in installedTargets), so the sheet must
+        // still dim it rather than treating a configured App ID as "always
+        // light it up".
+        expect(
+          isShareTargetDimmed(ShareTarget.facebookStory, const [], fbAppId: '1234567890'),
+          isTrue,
+          reason: 'App ID alone must not override a genuine not-installed state for Facebook either',
+        );
       },
     );
   });

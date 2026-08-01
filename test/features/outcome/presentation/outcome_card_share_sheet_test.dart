@@ -65,6 +65,21 @@ class _StubShareService extends ShareService {
   Future<bool> shareFile(File file, {required String text}) async => true;
 }
 
+/// Same stub as above but counts invocations — needed to prove the
+/// `_sharing` guard also blocks a rapid double-tap on the iOS/no-FB_APP_ID
+/// direct-fallback branch (`_shareViaMoreSheet` called straight from
+/// `_onShare`, never through `ShareTargetSheet`), not just the
+/// sheet-stays-open branch the other rapid-double-tap test above exercises.
+class _CountingShareService extends ShareService {
+  int callCount = 0;
+
+  @override
+  Future<bool> shareFile(File file, {required String text}) async {
+    callCount++;
+    return true;
+  }
+}
+
 void main() {
   RunSummary summary() {
     return RunSummary(
@@ -231,9 +246,12 @@ void main() {
   );
 
   testWidgets(
-    'on a non-web, non-Android platform (e.g. iOS), Share skips '
-    'ShareTargetSheet entirely and goes straight to the "More…"/share_plus '
-    'path (regression for the kIsWeb-only gate — architecture §4.1)',
+    'on iOS with no FB_APP_ID configured (the default — kFbAppId is empty '
+    'in every `flutter test` run since no --dart-define is passed), Share '
+    'skips the sheet entirely and falls straight back to the '
+    '"More…"/share_plus path — code-reviewer regression coverage: with no '
+    'App ID, Instagram/Facebook are dimmed AND WhatsApp is always dimmed '
+    'on iOS, so all 3 tiles would be dead-ends were the sheet shown anyway',
     (tester) async {
       debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
       try {
@@ -242,13 +260,6 @@ void main() {
           ProviderScope(
             overrides: [
               cardRendererProvider.overrideWithValue(fakeRenderer),
-              // If the gate regressed to kIsWeb-only, this would be consulted
-              // on iOS too; leaving it wired to a real value would make the
-              // regression harder to see, so wire it to something that would
-              // visibly fail below if it were ever read.
-              installedTargetsProvider.overrideWith(
-                (ref) async => throw StateError('must not be probed on a non-Android platform'),
-              ),
               shareServiceProvider.overrideWithValue(const _StubShareService()),
             ],
             child: MaterialApp(home: OutcomeCardScreen(summary: summary())),
@@ -260,8 +271,97 @@ void main() {
         await tapAndSettle(tester, find.widgetWithText(StickerButton, 'Share'));
 
         expect(fakeRenderer.renderCount, 1);
-        expect(find.byType(ShareTargetSheet), findsNothing, reason: 'no 3-tile sheet off-Android');
-        expect(find.text('✓ Shared'), findsOneWidget, reason: 'falls straight through to share_plus');
+        expect(
+          find.byType(ShareTargetSheet),
+          findsNothing,
+          reason: 'no FB_APP_ID means every tile would be dead — must not show a dead-end sheet',
+        );
+        expect(
+          find.text('✓ Shared'),
+          findsOneWidget,
+          reason: 'falls straight back to the working share_plus path, same as web',
+        );
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+    },
+  );
+
+  testWidgets(
+    'on iOS with no FB_APP_ID configured, a rapid double-tap on Share still '
+    'renders the card exactly once and invokes the fallback share exactly '
+    'once — proves the `_sharing` guard also covers the direct-fallback '
+    'branch (which never opens ShareTargetSheet), not only the '
+    'sheet-stays-open branch the other rapid-double-tap test exercises',
+    (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      try {
+        final fakeRenderer = _FakeCardRenderer();
+        final countingShareService = _CountingShareService();
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              cardRendererProvider.overrideWithValue(fakeRenderer),
+              shareServiceProvider.overrideWithValue(countingShareService),
+            ],
+            child: MaterialApp(home: OutcomeCardScreen(summary: summary())),
+          ),
+        );
+        await tester.pump(const Duration(seconds: 2));
+        await tester.pump(const Duration(milliseconds: 100));
+
+        await tester.runAsync(() async {
+          await tester.tap(find.widgetWithText(StickerButton, 'Share'));
+          await tester.tap(
+            find.widgetWithText(StickerButton, 'Share'),
+            warnIfMissed: false,
+          );
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+        });
+        await tester.pumpAndSettle();
+
+        expect(tester.takeException(), isNull);
+        expect(
+          fakeRenderer.renderCount,
+          1,
+          reason: 'single-render invariant must hold on the fallback branch too',
+        );
+        expect(
+          countingShareService.callCount,
+          1,
+          reason: '_sharing guard must block the second tap even though this branch never shows a sheet to gate on',
+        );
+        expect(find.text('✓ Shared'), findsOneWidget);
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+    },
+  );
+
+  testWidgets(
+    'on Android, Share still reaches ShareTargetSheet even with no FB_APP_ID '
+    'configured — unlike iOS, WhatsApp works there independent of the '
+    'Facebook App ID, so Android is unaffected by this fix',
+    (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      try {
+        final fakeRenderer = _FakeCardRenderer();
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              cardRendererProvider.overrideWithValue(fakeRenderer),
+              installedTargetsProvider.overrideWith((ref) async => const <ShareTarget>[]),
+            ],
+            child: MaterialApp(home: OutcomeCardScreen(summary: summary())),
+          ),
+        );
+        await tester.pump(const Duration(seconds: 2));
+        await tester.pump(const Duration(milliseconds: 100));
+
+        await tapAndSettle(tester, find.widgetWithText(StickerButton, 'Share'));
+
+        expect(fakeRenderer.renderCount, 1);
+        expect(find.byType(ShareTargetSheet), findsOneWidget, reason: 'Android always reaches the sheet');
       } finally {
         debugDefaultTargetPlatformOverride = null;
       }

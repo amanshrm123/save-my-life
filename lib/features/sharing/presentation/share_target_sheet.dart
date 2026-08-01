@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -112,7 +114,15 @@ class _ShareTargetSheetState extends ConsumerState<ShareTargetSheet> {
       case ShareTarget.instagramStory:
         return kToastInstagramNotInstalled;
       case ShareTarget.whatsappStatus:
-        return kToastWhatsAppNotInstalled;
+        // WhatsApp Status is always dimmed on iOS (no iOS share path exists
+        // at all, regardless of whether WhatsApp itself is installed —
+        // see `SocialSharePlugin.swift`'s `installedTargets()` comment), so
+        // "isn't installed" would be factually wrong there (app-store-
+        // specialist flag): the app may well be installed, it's the
+        // Status-sharing capability that's missing on this platform.
+        return defaultTargetPlatform == TargetPlatform.iOS
+            ? kToastWhatsAppNotSupportedOnIOS
+            : kToastWhatsAppNotInstalled;
       case ShareTarget.facebookStory:
         return kToastFacebookNotInstalled;
     }

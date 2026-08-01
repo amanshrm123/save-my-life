@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show TargetPlatform, debugDefaultTargetPlatformOverride;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart' show Override;
@@ -136,6 +137,67 @@ void main() {
         reason: 'sheet must stay open',
       );
       expect(sheetSettled, isFalse);
+    },
+  );
+
+  testWidgets(
+    'the dimmed Facebook tile is tappable, shows its own "isn\'t installed" '
+    'copy (not Instagram\'s or a generic one), and does NOT dismiss the '
+    'sheet — previously untested: every other dimmed-tile test in this file '
+    'only exercised Instagram/WhatsApp, leaving kToastFacebookNotInstalled '
+    'and the Facebook branch of _notInstalledCopyFor with zero tap coverage',
+    (tester) async {
+      await openSheet(tester, installedTargets: const []);
+
+      await tester.tap(find.text('Facebook'));
+      await tester.pump();
+
+      expect(find.text("Facebook isn't installed"), findsOneWidget);
+      expect(
+        find.byType(ShareTargetSheet),
+        findsOneWidget,
+        reason: 'sheet must stay open',
+      );
+      expect(sheetSettled, isFalse);
+    },
+  );
+
+  testWidgets(
+    'the dimmed WhatsApp tile shows the plain "isn\'t installed" copy on '
+    'Android — unchanged from before',
+    (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      try {
+        await openSheet(tester, installedTargets: const []);
+
+        await tester.tap(find.text('WhatsApp'));
+        await tester.pump();
+
+        expect(find.text("WhatsApp isn't installed"), findsOneWidget);
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+    },
+  );
+
+  testWidgets(
+    'REGRESSION (app-store-specialist flag): the dimmed WhatsApp tile shows '
+    'iOS-specific copy — "isn\'t installed" is factually wrong there, since '
+    'WhatsApp may genuinely be installed; it\'s the Status-share capability '
+    'that doesn\'t exist on iOS at all',
+    (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+      try {
+        await openSheet(tester, installedTargets: const []);
+
+        await tester.tap(find.text('WhatsApp'));
+        await tester.pump();
+
+        expect(find.text("WhatsApp Status isn't supported on iPhone"), findsOneWidget);
+        expect(find.text("WhatsApp isn't installed"), findsNothing);
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
     },
   );
 
@@ -362,6 +424,51 @@ void main() {
         findsNothing,
         reason: 'exactly one sheet resolved once',
       );
+    },
+  );
+
+  testWidgets(
+    'tapping a DIMMED tile while a DIFFERENT tile\'s share is still in-flight '
+    'still shows its own "isn\'t installed" toast immediately, rather than '
+    'being silently swallowed by `_dispatching` — the dimmed pre-check in '
+    '_onTileTap runs before the in-flight guard, so it is not gated by '
+    'whatever native call is already pending for the other tile',
+    (tester) async {
+      final completer = Completer<SocialShareResult>();
+      final stub = _CompleterSocialShareService(completer);
+      await openSheet(
+        tester,
+        installedTargets: const [ShareTarget.whatsappStatus],
+        overrides: [socialShareServiceProvider.overrideWithValue(stub)],
+      );
+
+      // WhatsApp is installed/non-dimmed here — tap it to put a real
+      // `shareToStory` call in flight (deliberately never completing yet).
+      await tester.tap(find.text('WhatsApp'));
+      await tester.pump();
+
+      // While that's still pending, tap the dimmed Instagram tile.
+      await tester.tap(find.text('Instagram'));
+      await tester.pump();
+
+      expect(
+        find.text("Instagram isn't installed"),
+        findsOneWidget,
+        reason:
+            'the dimmed pre-check must still fire even with an unrelated '
+            'native call in flight',
+      );
+      expect(find.byType(ShareTargetSheet), findsOneWidget);
+
+      // Now let the original in-flight WhatsApp share resolve successfully —
+      // must still dismiss the sheet cleanly with no crash from the
+      // interleaved dimmed-tile tap above.
+      completer.complete(const SocialShareResult(SocialShareOutcome.success));
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(find.byType(ShareTargetSheet), findsNothing);
+      expect(sheetSettled, isTrue);
     },
   );
 
