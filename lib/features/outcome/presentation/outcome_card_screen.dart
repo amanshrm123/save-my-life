@@ -379,10 +379,21 @@ class _OutcomeCardScreenState extends ConsumerState<OutcomeCardScreen>
       return;
     }
 
-    final result = await ref.read(adServiceProvider).showInterstitial();
+    final adService = ref.read(adServiceProvider);
+    final result = await adService.showInterstitial();
     if (!mounted) return;
     if (result == InterstitialResult.shown) {
-      _goToInterstitial(context);
+      // `rendersOwnUi == false` (a real AppLovin MAX interstitial) means
+      // the SDK already displayed its own native full-screen overlay
+      // before this Future resolved — pushing this app's own
+      // `InterstitialScreen` on top would stack a second, redundant ad
+      // screen after an ad that already played. Only `FakeAdService`
+      // (`rendersOwnUi == true`) needs the app-rendered placeholder.
+      if (adService.rendersOwnUi) {
+        _goToInterstitial(context);
+      } else {
+        _goToPlay(context);
+      }
     } else {
       _goToAdFailed(context);
     }
@@ -1222,22 +1233,65 @@ void _goToAdFailed(BuildContext context) {
   Navigator.of(context).pushReplacement(
     fadeSlideRoute(
       settings: const RouteSettings(name: '/ad/failed'),
-      builder: (innerContext) => Consumer(
-        builder: (consumerContext, ref, _) => AdFailedView(
-          onRetry: () => _retryInterstitial(innerContext, ref),
-          onMaybeLater: () => _goToPlay(innerContext),
-        ),
-      ),
+      builder: (_) => const _AdFailedHost(),
     ),
   );
 }
 
-Future<void> _retryInterstitial(BuildContext context, WidgetRef ref) async {
-  final result = await ref.read(adServiceProvider).showInterstitial();
-  if (!context.mounted) return;
-  if (result == InterstitialResult.shown) {
-    _goToInterstitial(context);
-  } else {
-    _goToAdFailed(context);
+/// Hosts `AdFailedView`'s Retry action behind its own single-flight guard
+/// (real-ad-serving pass review, fix 4) — mirrors
+/// `_OutcomeCardScreenState._navigating`'s exact pattern, just scoped to
+/// this screen instead. Needed because `_retryInterstitial` used to be a
+/// bare top-level function with nothing to guard a re-entrant tap: with a
+/// REAL ad, `showInterstitial()`'s await is now seconds long (not the one
+/// microtask `FakeAdService` resolves in), so `AdFailedView`'s Retry button
+/// stayed tappable throughout that whole window. A second tap while the
+/// first was still in flight could hit the service's own "already pending"
+/// guard and get back `failedToLoad` for the SECOND call while the FIRST
+/// call's ad was genuinely displaying — and if that second call's
+/// `_goToAdFailed` navigation replaced the route before the first call's
+/// result resolved, the first call's `shown` result was silently dropped
+/// via a dead `context`. A `StatefulWidget` (rather than the previous bare
+/// `Consumer`) is what actually makes a persistent per-screen guard
+/// possible here.
+class _AdFailedHost extends ConsumerStatefulWidget {
+  const _AdFailedHost();
+
+  @override
+  ConsumerState<_AdFailedHost> createState() => _AdFailedHostState();
+}
+
+class _AdFailedHostState extends ConsumerState<_AdFailedHost> {
+  /// Mirrors `_OutcomeCardScreenState._navigating` exactly: a plain field
+  /// (not `setState`-driven — nothing here needs to visually react to it,
+  /// same as `_navigating`), checked at the top of [_onRetry] and never
+  /// reset to `false`, since every branch either navigates away from this
+  /// screen (disposing this very `State`) or replaces it with a brand-new
+  /// `_AdFailedHost` instance (`_goToAdFailed`, on a repeat `failedToLoad`)
+  /// that starts with its own fresh `_retrying = false`.
+  bool _retrying = false;
+
+  Future<void> _onRetry() async {
+    if (_retrying) return;
+    _retrying = true;
+
+    final adService = ref.read(adServiceProvider);
+    final result = await adService.showInterstitial();
+    if (!mounted) return;
+    if (result == InterstitialResult.shown) {
+      // Same `rendersOwnUi` branch as `_onAgain` above — see its comment.
+      if (adService.rendersOwnUi) {
+        _goToInterstitial(context);
+      } else {
+        _goToPlay(context);
+      }
+    } else {
+      _goToAdFailed(context);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AdFailedView(onRetry: _onRetry, onMaybeLater: () => _goToPlay(context));
   }
 }

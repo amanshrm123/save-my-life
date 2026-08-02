@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timing_tap/core/persistence/preferences_keys.dart';
 import 'package:timing_tap/core/persistence/preferences_service.dart';
 import 'package:timing_tap/core/routing/app_route_observer.dart';
+import 'package:timing_tap/features/ads/presentation/banner_ad_slot.dart';
 import 'package:timing_tap/features/home/presentation/home_screen.dart';
 import 'package:timing_tap/features/home/presentation/widgets/streak_advanced_overlay.dart';
 import 'package:timing_tap/features/onboarding/state/onboarding_providers.dart';
@@ -155,6 +156,46 @@ void main() {
         reason: 'display-once semantics: the celebration must not repeat '
             'once it has already been shown and Home was covered/uncovered',
       );
+    },
+  );
+
+  testWidgets(
+    'REGRESSION: BannerAdSlot.isVisible tracks HomeScreen\'s own RouteAware '
+    'visibility — true while Home is the current route, false while '
+    'covered, true again once popped back to, surviving rapid '
+    'cover/uncover cycles without crashing',
+    (tester) async {
+      await buildEnvironment(
+        tester,
+        streakCurrent: 1,
+        streakLastPlayDayOffsetFromToday: -1,
+      );
+
+      // `skipOffstage: false` — once covered by another route, HomeScreen's
+      // subtree (BannerAdSlot included) stays mounted-but-unpainted rather
+      // than disposed (`MaterialPageRoute.maintainState` default), and the
+      // default finder's `skipOffstage: true` would otherwise treat that as
+      // "not found" and throw, rather than actually reading its (correctly
+      // updated) `isVisible` value.
+      bool slotVisible() => tester
+          .widget<BannerAdSlot>(find.byType(BannerAdSlot, skipOffstage: false))
+          .isVisible;
+
+      expect(slotVisible(), isTrue, reason: 'Home is the current, visible route on first build');
+
+      // Quick navigation in/out, repeated, mirroring a player rapidly
+      // opening/closing Settings from Home.
+      for (var i = 0; i < 3; i++) {
+        pushCoveringRoute(tester);
+        await tester.pumpAndSettle();
+        expect(find.byType(_CoveringScreen), findsOneWidget);
+        expect(slotVisible(), isFalse, reason: 'didPushNext must flip isVisible false while Home is covered');
+
+        Navigator.of(tester.element(find.byType(_CoveringScreen))).pop();
+        await tester.pumpAndSettle();
+        expect(find.byType(_CoveringScreen), findsNothing);
+        expect(slotVisible(), isTrue, reason: 'didPopNext must flip isVisible back true once Home is visible again');
+      }
     },
   );
 }

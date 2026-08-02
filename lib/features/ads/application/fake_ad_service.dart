@@ -12,6 +12,12 @@ class FakeAdService implements AdService {
   /// always "succeeding" so the everyday interstitial flow just works.
   bool forceFailure = false;
 
+  /// Unchanged from before the real-ad-serving pass: the fake interstitial
+  /// is this app's own `InterstitialScreen`, pushed by the caller exactly
+  /// as it always was.
+  @override
+  bool get rendersOwnUi => true;
+
   @override
   Future<InterstitialResult> showInterstitial() async {
     return forceFailure ? InterstitialResult.failedToLoad : InterstitialResult.shown;

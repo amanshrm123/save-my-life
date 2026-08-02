@@ -6,6 +6,7 @@ import '../../../core/routing/app_route_observer.dart';
 import '../../../core/routing/app_routes.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/sticker_button.dart';
+import '../../ads/presentation/banner_ad_slot.dart';
 import '../../avatar/presentation/widgets/home_avatar_card.dart';
 import '../../avatar/state/avatar_providers.dart';
 import '../../progression/domain/streak_calculator.dart';
@@ -185,87 +186,110 @@ class _HomeScreenState extends ConsumerState<HomeScreen>
 
     return Scaffold(
       backgroundColor: AppColors.bg,
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: Text.rich(
-                      TextSpan(
-                        style: AppTypography.wordmark.copyWith(fontSize: 26, height: 0.9),
-                        children: const [
-                          TextSpan(text: 'Stay '),
-                          TextSpan(text: 'Alive', style: TextStyle(color: AppColors.coral)),
-                        ],
+      // Restructured for the banner footer slot (real-ad-serving pass,
+      // game-ux-designer spec): the existing dashboard content sits in an
+      // `Expanded` above the slot, and the slot itself sits outside that
+      // `Expanded`, at the very bottom, in its OWN `SafeArea(top: false)` so
+      // it alone owns the bottom nav-inset (the content `SafeArea` above
+      // skips its own bottom inset accordingly, via `bottom: false`, to
+      // avoid double-padding).
+      body: Column(
+        children: [
+          Expanded(
+            child: SafeArea(
+              bottom: false,
+              child: Padding(
+                padding: const EdgeInsets.only(
+                  left: 16,
+                  right: 16,
+                  top: 14,
+                  // 8dp gap between the Play button and the banner slot's
+                  // top edge (game-ux-designer spec) — down from the
+                  // original 14 now that the slot itself sits right below.
+                  bottom: 8,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Text.rich(
+                            TextSpan(
+                              style: AppTypography.wordmark.copyWith(fontSize: 26, height: 0.9),
+                              children: const [
+                                TextSpan(text: 'Stay '),
+                                TextSpan(text: 'Alive', style: TextStyle(color: AppColors.coral)),
+                              ],
+                            ),
+                          ),
+                        ),
+                        _SettingsIconButton(onPressed: _goToSettings),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    const Text(
+                      kAppTagline,
+                      style: AppTypography.body,
+                    ),
+                    const SizedBox(height: 14),
+                    _StreakCard(streakCount: snap.streak.count),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: StatTile(
+                            value: '${snap.totalSurvives}',
+                            label: 'Survived',
+                            valueColor: AppColors.greenDark,
+                            onTap: _goToStats,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: StatTile(
+                            value: '${snap.totalEternal}',
+                            label: 'Eternal',
+                            valueColor: AppColors.goldDark,
+                            onTap: _goToStats,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: StatTile(
+                            value: '${snap.totalDeaths}',
+                            label: 'Deaths',
+                            valueColor: AppColors.redDark,
+                            onTap: _goToStats,
+                          ),
+                        ),
+                      ],
+                    ),
+                    Expanded(
+                      child: Center(
+                        child: HomeAvatarCard(
+                          avatarId: ref.watch(selectedAvatarProvider),
+                          bestLifePercent: snap.bestLifePercent,
+                          onTap: _goToAvatarPicker,
+                          shouldAnimateFill: _isVisible,
+                        ),
                       ),
                     ),
-                  ),
-                  _SettingsIconButton(onPressed: _goToSettings),
-                ],
-              ),
-              const SizedBox(height: 6),
-              const Text(
-                kAppTagline,
-                style: AppTypography.body,
-              ),
-              const SizedBox(height: 14),
-              _StreakCard(streakCount: snap.streak.count),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: StatTile(
-                      value: '${snap.totalSurvives}',
-                      label: 'Survived',
-                      valueColor: AppColors.greenDark,
-                      onTap: _goToStats,
+                    StickerButton(
+                      label: 'Play',
+                      fill: AppColors.coral,
+                      labelShadow: AppColors.coralDark,
+                      height: 50,
+                      onPressed: _goToPlay,
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: StatTile(
-                      value: '${snap.totalEternal}',
-                      label: 'Eternal',
-                      valueColor: AppColors.goldDark,
-                      onTap: _goToStats,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: StatTile(
-                      value: '${snap.totalDeaths}',
-                      label: 'Deaths',
-                      valueColor: AppColors.redDark,
-                      onTap: _goToStats,
-                    ),
-                  ),
-                ],
-              ),
-              Expanded(
-                child: Center(
-                  child: HomeAvatarCard(
-                    avatarId: ref.watch(selectedAvatarProvider),
-                    bestLifePercent: snap.bestLifePercent,
-                    onTap: _goToAvatarPicker,
-                    shouldAnimateFill: _isVisible,
-                  ),
+                  ],
                 ),
               ),
-              StickerButton(
-                label: 'Play',
-                fill: AppColors.coral,
-                labelShadow: AppColors.coralDark,
-                height: 50,
-                onPressed: _goToPlay,
-              ),
-            ],
+            ),
           ),
-        ),
+          SafeArea(top: false, child: BannerAdSlot(isVisible: _isVisible)),
+        ],
       ),
     );
   }

@@ -39,6 +39,7 @@ dependencies:
   http: ^1.5.0
   sentry_flutter: ^9.0.0
   flutter_svg: ^2.3.0
+  applovin_max: ^4.6.4
 
 dev_dependencies:
   flutter_test:

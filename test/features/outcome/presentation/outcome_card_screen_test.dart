@@ -7,6 +7,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timing_tap/core/persistence/preferences_service.dart';
 import 'package:timing_tap/core/widgets/sticker_button.dart';
+import 'package:timing_tap/features/ads/application/ad_service.dart';
+import 'package:timing_tap/features/ads/application/ad_gate.dart';
+import 'package:timing_tap/features/ads/presentation/ad_failed_view.dart';
+import 'package:timing_tap/features/ads/presentation/interstitial_screen.dart';
+import 'package:timing_tap/features/ads/state/ad_providers.dart';
 import 'package:timing_tap/features/onboarding/state/onboarding_providers.dart'
     show preferencesServiceProvider;
 import 'package:timing_tap/features/outcome/application/outcome_story_service.dart';
@@ -17,6 +22,7 @@ import 'package:timing_tap/features/outcome/presentation/widgets/outcome_card_lo
 import 'package:timing_tap/features/outcome/state/outcome_providers.dart';
 import 'package:timing_tap/features/play_loop/domain/run_state.dart';
 import 'package:timing_tap/features/play_loop/domain/run_summary.dart';
+import 'package:timing_tap/features/play_loop/presentation/play_loop_screen.dart';
 
 /// Screen-level regression coverage for `OutcomeCardScreen` (architecture v4
 /// §4/§6/§8), targeting two of this session's fixes specifically:
@@ -607,6 +613,302 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  group('"Again" -> AdService routing (real-ad-serving pass)', () {
+    /// Fast-forwards `adGateProvider` to be "due" without relying on 3
+    /// separate `OutcomeCardScreen` instances: `OutcomeCardScreen.initState`
+    /// itself registers exactly one completed run per mount (via a
+    /// post-frame callback), so bumping the counter by 2 more externally,
+    /// right after the first pump, lands exactly on the 3rd completed run.
+    Future<void> makeInterstitialDue(WidgetTester tester) async {
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(OutcomeCardScreen)),
+      );
+      final gate = container.read(adGateProvider.notifier);
+      gate.registerRunCompleted();
+      gate.registerRunCompleted();
+      expect(gate.isDue, isTrue, reason: '1 (from initState) + 2 more == the 3rd run');
+    }
+
+    testWidgets(
+      'REGRESSION: when rendersOwnUi is false (a real MAX interstitial '
+      'already showed its own native overlay) and the result is shown, '
+      '"Again" skips InterstitialScreen entirely and goes straight to '
+      'PlayLoopScreen',
+      (tester) async {
+        final s = summary();
+        await tester.pumpWidget(
+          harness(
+            s,
+            overrides: [
+              adServiceProvider.overrideWithValue(_RendersOwnUiFalseAdService()),
+            ],
+          ),
+        );
+        await tester.pump();
+        await makeInterstitialDue(tester);
+
+        // Let the card resolve so "Again" is reachable/tappable.
+        await tester.pump(const Duration(seconds: 2));
+        await tester.pump(const Duration(milliseconds: 100));
+
+        await tester.tap(find.widgetWithText(StickerButton, 'Again'));
+        await tester.pump();
+        // `PlayLoopScreen`'s own countdown (`RunConfig.defaults`:
+        // 3 steps * 700ms) schedules a real `Timer` chain on mount
+        // (`countdown_view.dart`) — flush it explicitly (mirrors
+        // `play_loop_screen_test.dart`'s own `pumpPastCountdown` helper)
+        // before `pumpAndSettle`, which alone isn't reliable for a
+        // periodic-timer-driven countdown and would otherwise leave a
+        // pending `Timer` at test teardown.
+        await tester.pump(const Duration(milliseconds: 2200));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byType(InterstitialScreen),
+          findsNothing,
+          reason: 'rendersOwnUi == false must never push this app\'s own interstitial screen',
+        );
+        expect(find.byType(PlayLoopScreen), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'when rendersOwnUi is true (FakeAdService, unchanged pre-existing '
+      'behavior) and the result is shown, "Again" still pushes '
+      'InterstitialScreen',
+      (tester) async {
+        final s = summary();
+        await tester.pumpWidget(harness(s));
+        await tester.pump();
+        await makeInterstitialDue(tester);
+
+        await tester.pump(const Duration(seconds: 2));
+        await tester.pump(const Duration(milliseconds: 100));
+
+        await tester.tap(find.widgetWithText(StickerButton, 'Again'));
+        // Deliberately bounded pumps (not `pumpAndSettle`) here:
+        // `InterstitialScreen` auto-advances itself via a real 4s
+        // `Timer.periodic` (1 tick/sec), which `pumpAndSettle` would
+        // fast-forward straight through (each periodic tick reschedules a
+        // frame, so `pumpAndSettle` keeps going until the whole countdown
+        // — and its auto-hand-off past this very screen — finishes). A
+        // short, fixed pump instead captures the screen mid-display, which
+        // is what this test actually needs to assert on.
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 200));
+
+        expect(find.byType(InterstitialScreen), findsOneWidget);
+      },
+    );
+  });
+
+  group('AdFailedView Retry (real-ad-serving pass review, fix 4)', () {
+    Future<void> makeInterstitialDue(WidgetTester tester) async {
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(OutcomeCardScreen)),
+      );
+      final gate = container.read(adGateProvider.notifier);
+      gate.registerRunCompleted();
+      gate.registerRunCompleted();
+      expect(gate.isDue, isTrue, reason: '1 (from initState) + 2 more == the 3rd run');
+    }
+
+    testWidgets(
+      'REGRESSION: Retry, when it succeeds with rendersOwnUi == false (a '
+      'real MAX interstitial that already showed its own native overlay), '
+      'goes straight to PlayLoopScreen — mirrors "Again"\'s own routing, not '
+      'just the FakeAdService rendersOwnUi == true path',
+      (tester) async {
+        final s = summary();
+        final adService = _SequencedAdService(rendersOwnUi: false);
+        await tester.pumpWidget(
+          harness(s, overrides: [adServiceProvider.overrideWithValue(adService)]),
+        );
+        await tester.pump();
+        await makeInterstitialDue(tester);
+        await tester.pump(const Duration(seconds: 2));
+        await tester.pump(const Duration(milliseconds: 100));
+
+        // "Again"'s first showInterstitial() call fails -> lands on
+        // AdFailedView.
+        await tester.tap(find.widgetWithText(StickerButton, 'Again'));
+        await tester.pump();
+        adService.resolveCall(0, InterstitialResult.failedToLoad);
+        await tester.pump();
+        await tester.pumpAndSettle();
+        expect(find.byType(AdFailedView), findsOneWidget);
+
+        // Retry's call succeeds.
+        await tester.tap(find.text('Retry'));
+        await tester.pump();
+        adService.resolveCall(1, InterstitialResult.shown);
+        // Several smaller pumps (not one large jump) to reliably drain the
+        // resulting pushReplacement's own transition/route-settling steps,
+        // mirroring this file's established `pumpPastCountdown`-style
+        // approach elsewhere for timer/animation-chained navigation.
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
+        await tester.pump(const Duration(milliseconds: 2200));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byType(InterstitialScreen),
+          findsNothing,
+          reason: 'rendersOwnUi == false must never push this app\'s own interstitial screen',
+        );
+        expect(find.byType(PlayLoopScreen), findsOneWidget);
+        expect(adService.callCount, 2, reason: 'exactly one "Again" call + one Retry call');
+      },
+    );
+
+    testWidgets(
+      'REGRESSION: a second Retry tap while the first is still in flight is '
+      'a no-op — does not start a second overlapping showInterstitial() '
+      'call (fix 4\'s single-flight guard, mirroring "Again"\'s own '
+      '_navigating guard)',
+      (tester) async {
+        final s = summary();
+        final adService = _SequencedAdService(rendersOwnUi: false);
+        await tester.pumpWidget(
+          harness(s, overrides: [adServiceProvider.overrideWithValue(adService)]),
+        );
+        await tester.pump();
+        await makeInterstitialDue(tester);
+        await tester.pump(const Duration(seconds: 2));
+        await tester.pump(const Duration(milliseconds: 100));
+
+        await tester.tap(find.widgetWithText(StickerButton, 'Again'));
+        await tester.pump();
+        adService.resolveCall(0, InterstitialResult.failedToLoad);
+        await tester.pump();
+        await tester.pumpAndSettle();
+        expect(find.byType(AdFailedView), findsOneWidget);
+
+        // First Retry tap starts a genuinely in-flight (never-yet-resolved)
+        // second showInterstitial() call.
+        await tester.tap(find.text('Retry'));
+        await tester.pump();
+        expect(adService.callCount, 2);
+
+        // A second tap while that call is still pending must be swallowed
+        // by the guard, not start a THIRD call.
+        await tester.tap(find.text('Retry'));
+        await tester.pump();
+        expect(
+          adService.callCount,
+          2,
+          reason: 'the guard must ignore a re-entrant tap while a retry is already in flight',
+        );
+
+        // Resolving the one genuine in-flight call still completes the
+        // flow normally.
+        adService.resolveCall(1, InterstitialResult.shown);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
+        await tester.pump(const Duration(milliseconds: 2200));
+        await tester.pumpAndSettle();
+
+        expect(find.byType(PlayLoopScreen), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'REGRESSION: the _retrying single-flight guard resets across a fresh '
+      '_AdFailedHost instance — TWO consecutive failures (Again, then '
+      'Retry) followed by a THIRD attempt still succeeds, rather than the '
+      'guard staying permanently tripped',
+      (tester) async {
+        final s = summary();
+        final adService = _SequencedAdService(rendersOwnUi: false);
+        await tester.pumpWidget(
+          harness(s, overrides: [adServiceProvider.overrideWithValue(adService)]),
+        );
+        await tester.pump();
+        await makeInterstitialDue(tester);
+        await tester.pump(const Duration(seconds: 2));
+        await tester.pump(const Duration(milliseconds: 100));
+
+        // Failure #1: "Again" -> AdFailedView (host A).
+        await tester.tap(find.widgetWithText(StickerButton, 'Again'));
+        await tester.pump();
+        adService.resolveCall(0, InterstitialResult.failedToLoad);
+        await tester.pump();
+        await tester.pumpAndSettle();
+        expect(find.byType(AdFailedView), findsOneWidget);
+
+        // Failure #2: Retry on host A also fails -> a brand-new
+        // _AdFailedHost (host B) replaces it via pushReplacement.
+        await tester.tap(find.text('Retry'));
+        await tester.pump();
+        adService.resolveCall(1, InterstitialResult.failedToLoad);
+        await tester.pump();
+        await tester.pumpAndSettle();
+        expect(find.byType(AdFailedView), findsOneWidget);
+
+        // Attempt #3: Retry on host B (a fresh State with its own
+        // `_retrying = false`) must still be tappable and succeed — proves
+        // the guard never permanently wedges Retry after repeated failures.
+        await tester.tap(find.text('Retry'));
+        await tester.pump();
+        expect(adService.callCount, 3, reason: 'the third genuine tap must reach the service');
+        adService.resolveCall(2, InterstitialResult.shown);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
+        await tester.pump(const Duration(milliseconds: 2200));
+        await tester.pumpAndSettle();
+
+        expect(find.byType(PlayLoopScreen), findsOneWidget);
+      },
+    );
+  });
+}
+
+/// Minimal `AdService` test double exercising the `rendersOwnUi == false`
+/// branch (a real MAX interstitial's SDK-owned native overlay) without any
+/// dependency on the real `applovin_max` plugin/platform channel.
+class _RendersOwnUiFalseAdService implements AdService {
+  @override
+  bool get rendersOwnUi => false;
+
+  @override
+  Future<InterstitialResult> showInterstitial() async => InterstitialResult.shown;
+
+  @override
+  Future<RewardedResult> showRewarded() async => RewardedResult.failedToLoad;
+}
+
+/// `AdService` test double whose `showInterstitial()` calls resolve only
+/// when the test explicitly tells them to (`resolveCall`) — unlike
+/// `FakeAdService`'s near-instant resolve, this lets a test hold a call
+/// genuinely "in flight" across a real await gap, which is what's needed to
+/// exercise the single-flight Retry guard (fix 4) and the
+/// `rendersOwnUi`-branch routing together.
+class _SequencedAdService implements AdService {
+  _SequencedAdService({required this.rendersOwnUi});
+
+  @override
+  final bool rendersOwnUi;
+
+  int callCount = 0;
+  final List<Completer<InterstitialResult>> _completers = [];
+
+  @override
+  Future<InterstitialResult> showInterstitial() {
+    callCount++;
+    final completer = Completer<InterstitialResult>();
+    _completers.add(completer);
+    return completer.future;
+  }
+
+  /// Resolves the [index]th `showInterstitial()` call (0-based, in call
+  /// order) with [result].
+  void resolveCall(int index, InterstitialResult result) {
+    _completers[index].complete(result);
+  }
+
+  @override
+  Future<RewardedResult> showRewarded() async => RewardedResult.failedToLoad;
 }
 
 class _NeverCompletingService implements OutcomeStoryService {
