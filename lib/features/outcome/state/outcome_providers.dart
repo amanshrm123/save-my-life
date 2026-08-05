@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 
+import '../../../core/monitoring/sentry_config.dart';
+import '../../../core/network/instrumented_client.dart';
 import '../../onboarding/state/onboarding_providers.dart'
     show preferencesServiceProvider;
 import '../../play_loop/domain/run_summary.dart';
@@ -32,11 +34,23 @@ const Duration kMinStoryLoadDuration = Duration(milliseconds: 1000);
 /// import them from `story_pool_repository.dart` if a future provider in
 /// this file ever needs them directly.
 
+/// Wraps [inner] in `InstrumentedClient` only when [sentryEnabled] — with no
+/// DSN configured, `Sentry.addBreadcrumb`/`captureException` are harmless
+/// no-ops, but there's no reason to pay even the timing-capture overhead on
+/// every request when nothing reads it. A plain top-level function (rather
+/// than inlined in the provider below) so tests can exercise both branches
+/// directly without needing a real `--dart-define` at test-run time —
+/// mirrors this codebase's established pattern for anything gated on a
+/// compile-time `kXyzEnabled` constant.
+http.Client createHttpClient(http.Client inner, {required bool sentryEnabled}) {
+  return sentryEnabled ? InstrumentedClient(inner) : inner;
+}
+
 /// The app's first-ever networking object (memory-safety M10): created once
 /// per session and closed on dispose so a leaked client never holds an open
 /// connection pool.
 final Provider<http.Client> httpClientProvider = Provider<http.Client>((ref) {
-  final client = http.Client();
+  final client = createHttpClient(http.Client(), sentryEnabled: kSentryEnabled);
   ref.onDispose(client.close);
   return client;
 });

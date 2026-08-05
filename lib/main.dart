@@ -5,6 +5,7 @@ import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:timezone/data/latest.dart' as tz_data;
 import 'package:timezone/timezone.dart' as tz;
 
+import 'core/monitoring/sentry_config.dart';
 import 'core/monitoring/sentry_service.dart';
 
 import 'app.dart';
@@ -14,14 +15,16 @@ import 'features/onboarding/state/onboarding_providers.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize Sentry early so startup errors are captured. DSN and other
-  // settings are supplied via --dart-define in CI or local runs.
-  final dsn = const String.fromEnvironment('SENTRY_DSN', defaultValue: '');
-  final env = const String.fromEnvironment('ENV', defaultValue: 'production');
-  final release = const String.fromEnvironment('RELEASE', defaultValue: '1.0.0+1');
-
-  if (dsn.isNotEmpty) {
-    await SentryService.init(dsn: dsn, environment: env, release: release);
+  // Initialize Sentry early so startup errors are captured. Only attempted
+  // at all when `kSentryEnabled` (no DSN define means no crash reporting,
+  // never a crash on startup) — see sentry_config.dart's own doc comments
+  // for why none of these three values are ever hardcoded.
+  if (kSentryEnabled) {
+    await SentryService.init(
+      dsn: kSentryDsn,
+      environment: kSentryEnvironment,
+      release: kSentryRelease,
+    );
   }
 
   final preferencesService = await PreferencesService.create();

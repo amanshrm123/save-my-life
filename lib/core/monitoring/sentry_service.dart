@@ -13,7 +13,7 @@ class SentryService {
     );
   }
 
-  static SentryId captureException(dynamic exception, {dynamic stackTrace}) {
+  static Future<SentryId> captureException(dynamic exception, {dynamic stackTrace}) {
     return Sentry.captureException(exception, stackTrace: stackTrace);
   }
 

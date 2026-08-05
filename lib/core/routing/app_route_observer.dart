@@ -2,7 +2,17 @@ import 'package:flutter/material.dart';
 import 'package:sentry_flutter/sentry_flutter.dart';
 
 /// App-wide `RouteObserver`, registered in `MaterialApp.navigatorObservers`
-/// (`app.dart`). Adds a simple Sentry breadcrumb on route transitions.
+/// (`app.dart`). Lets screens that stay mounted-but-offscreen underneath a
+/// pushed route (e.g. `HomeScreen` under `OutcomeCardScreen`, since v3's
+/// play->outcome flow is a `pushReplacement` that never pops Home off the
+/// stack) distinguish "I rebuilt because a provider changed" from "I am
+/// actually the visible, current route again" — the latter via `RouteAware`'s
+/// `didPopNext()`, not `build()`/`mounted` alone.
+///
+/// Also adds a Sentry breadcrumb on every push/pop/replace (route names
+/// only, never a screen's live state) — each override calls `super` FIRST,
+/// so the `RouteAware` forwarding above still fires exactly as before; the
+/// breadcrumb is purely observational, added after.
 final RouteObserver<ModalRoute<void>> appRouteObserver = _SentryRouteObserver();
 
 class _SentryRouteObserver extends RouteObserver<ModalRoute<void>> {
