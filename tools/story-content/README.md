@@ -117,6 +117,11 @@ to satisfy every requirement in
 304 on a matching `If-None-Match` — verified with `curl` against the live
 endpoint, not assumed).
 
+The same Worker also serves `/privacy` and `/terms` (the app's Settings
+"Privacy policy"/"Terms" links, rendered from repo-root `PRIVACY.md`/
+`TERMS.md`) — unrelated to story content, but it's the same deployed Worker,
+so a redeploy touches both. See `cloudflare-worker/README.md`.
+
 To publish a content edit, after step 1-4 above: `cd cloudflare-worker && cp
 ../stories.json public/stories.json && npx wrangler deploy`. See
 `cloudflare-worker/README.md` for the full explanation.

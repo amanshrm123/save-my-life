@@ -17,11 +17,16 @@ import 'widgets/reset_confirm_dialog.dart';
 import 'widgets/settings_toggle.dart';
 import '../state/settings_providers.dart';
 
-/// Founder-provided URLs don't exist yet — clearly-marked placeholders per
-/// architecture v3 §1 item 6 / §12 flag 6. Swap for real content whenever
-/// it's provided; no code change needed beyond these constants.
-const String _kPrivacyUrl = 'https://stayalive.app/privacy';
-const String _kTermsUrl = 'https://stayalive.app/terms';
+/// Privacy/Terms are live — rendered from repo-root PRIVACY.md/TERMS.md and
+/// served by the same Cloudflare Worker that already hosts `kStoryConfigUrl`
+/// (see tools/story-content/cloudflare-worker/). One shared Dart constant
+/// each, so both Android and iOS open the identical hosted page — there is
+/// no per-platform URL to keep in sync. `_kRateUrl` remains a founder-
+/// provided placeholder per architecture v3 §1 item 6 / §12 flag 6 (an app
+/// store listing doesn't exist yet to link to) — no code change needed
+/// beyond that one constant whenever it's provided.
+const String _kPrivacyUrl = 'https://soft-waterfall-3e3e.amanshrm74.workers.dev/privacy';
+const String _kTermsUrl = 'https://soft-waterfall-3e3e.amanshrm74.workers.dev/terms';
 const String _kRateUrl = 'https://stayalive.app/rate';
 
 /// One scrollable Settings screen (design v3 §6.1) — the mockup's two
