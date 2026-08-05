@@ -19,7 +19,9 @@ import '../state/settings_providers.dart';
 
 /// Founder-provided URLs don't exist yet — clearly-marked placeholders per
 /// architecture v3 §1 item 6 / §12 flag 6. Swap for real content whenever
-/// it's provided; no code change needed beyond these constants.
+/// it's provided; no code change needed beyond these constants. The actual
+/// content for the first two already exists (repo-root PRIVACY.md/TERMS.md)
+/// — only hosting them at these URLs (or an equivalent real host) remains.
 const String _kPrivacyUrl = 'https://stayalive.app/privacy';
 const String _kTermsUrl = 'https://stayalive.app/terms';
 const String _kRateUrl = 'https://stayalive.app/rate';
