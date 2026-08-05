@@ -222,6 +222,17 @@ void main() {
 
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets(
+    "the debug-only Verify Sentry setup row never renders when kSentryEnabled "
+    "is false (the actual state under `flutter test`, with no --dart-define) "
+    "-- it must never ship as a real player-facing row",
+    (tester) async {
+      await pumpSettings(tester);
+
+      expect(find.text('Verify Sentry setup'), findsNothing);
+    },
+  );
 }
 
 /// A `ReminderService` stub that records whether `cancel()` was invoked,

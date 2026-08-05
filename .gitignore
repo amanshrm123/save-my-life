@@ -43,3 +43,8 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Local --dart-define-from-file secrets (SENTRY_DSN, etc. — see
+# dart_define.local.example.json and docs/SENTRY.md). Never commit the real
+# file; only the .example.json template is tracked.
+/dart_define.local.json

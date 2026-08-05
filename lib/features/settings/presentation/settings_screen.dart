@@ -1,8 +1,9 @@
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kDebugMode, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../../core/monitoring/sentry_config.dart';
 import '../../../core/routing/app_routes.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/widgets/screen_header.dart';
@@ -100,6 +101,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     Navigator.of(context).pushNamedAndRemoveUntil(AppRoutes.splash, (route) => false);
   }
 
+  /// Sentry's own "Verify Setup" example (docs/SENTRY.md) — throws
+  /// intentionally so a developer can confirm an event actually lands in
+  /// the dashboard after wiring a real DSN. Debug-only (`kDebugMode`) AND
+  /// only rendered when a DSN is actually configured (`kSentryEnabled`) —
+  /// this must never ship a "crash the app" button to a real player.
+  void _onVerifySentrySetup() {
+    throw StateError('This is test exception');
+  }
+
   @override
   Widget build(BuildContext context) {
     final settings = ref.watch(settingsProvider);
@@ -185,6 +195,19 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     danger: true,
                     onTap: _onResetProgressTap,
                   ),
+                  if (kDebugMode && kSentryEnabled) ...[
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 10),
+                      child: Divider(color: AppColors.dotInactive, height: 1),
+                    ),
+                    _SettingsRow(
+                      emoji: '🐞',
+                      label: 'Verify Sentry setup',
+                      chevron: true,
+                      danger: true,
+                      onTap: _onVerifySentrySetup,
+                    ),
+                  ],
                   const SizedBox(height: 18),
                   const Text(
                     'v1.0.0 · stayalive.app',
