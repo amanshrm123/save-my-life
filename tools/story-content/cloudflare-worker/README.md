@@ -9,8 +9,8 @@ the Cloudflare dashboard.
 
 ## What it does
 
-Serves `../stories.json` (the canonical editable content one directory up)
-with the headers the app actually requires (see
+**Story content** — serves `../stories.json` (the canonical editable content
+one directory up) with the headers the app actually requires (see
 `story_config_endpoint.dart`'s doc comment for the full requirements list):
 
 - `Access-Control-Allow-Origin: *` — required for the Flutter web build.
@@ -22,11 +22,21 @@ with the headers the app actually requires (see
   script (only on a direct edge request to a static asset, which this
   isn't — the Worker script always runs first).
 
+**Legal pages** — `GET /privacy` and `GET /terms` serve the repo-root
+`PRIVACY.md`/`TERMS.md`, rendered to static HTML (see
+`scripts/render-legal-pages.js`). This is what Settings' "Privacy policy"/
+"Terms" rows (`lib/features/settings/presentation/settings_screen.dart`)
+actually open — and the URL both app stores require in their submission
+metadata. Any other path (including the bare Worker origin, unchanged for
+existing installs) still serves the story content, exactly as before these
+two routes existed.
+
 ## How to redeploy after editing content
 
 ```sh
 # from this directory:
 cp ../stories.json public/stories.json
+node scripts/render-legal-pages.js
 npx wrangler deploy
 ```
 
@@ -35,7 +45,11 @@ existing Worker, so this overwrites it in place at the same URL. No dashboard
 interaction needed. Requires `npx wrangler login` once per machine (opens a
 browser to authorize against the Cloudflare account this Worker lives on).
 
-`public/stories.json` is intentionally **not** committed (see
-`.gitignore` in this directory) — `../stories.json` is the single source of
-truth; copying it into `public/` immediately before every deploy avoids a
-third copy of this content silently drifting out of sync.
+`public/stories.json`, `public/privacy.html`, and `public/terms.html` are
+intentionally **not** committed (see `.gitignore` in this directory) — the
+repo-root `.md`/JSON source files are each the single source of truth;
+generating/copying into `public/` immediately before every deploy avoids a
+second copy of this content silently drifting out of sync. If you only
+changed `PRIVACY.md`/`TERMS.md`, you can skip the `cp ../stories.json` line;
+if you only changed story content, you can skip the render script — but
+running both unconditionally is harmless and simplest to remember.
