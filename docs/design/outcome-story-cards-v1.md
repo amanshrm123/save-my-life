@@ -37,6 +37,8 @@ Also **supersedes** `remaining-screens-v1.md`'s actions-row button numbers (its 
 
 ### R2.2 Actions-row buttons — grown to this app's own "standard" `StickerButton` size
 
+**Note (Revision 4, 2026-08-05): this section's `44` height is itself superseded by Revision 4 §R4.1 below (now `52`, height only — `borderRadius`/`restShadowOffset`/`fontSize` stay as set here). Kept here for history; don't build height 44 for this row.**
+
 `_ActionsRow`'s Share and Again buttons move from the compact "thin action-row variant" (`height: 40, borderRadius: 12, restShadowOffset: 4, fontSize: 13`) up to **exactly this app's own established default `StickerButton` size**, unchanged in every other respect (fill colors, `_shareButtonStyle`'s per-tier logic, the two-`Expanded`-equal-width row shape, "Again"'s paper/ink styling):
 
 | param | old | **new** |
@@ -51,6 +53,8 @@ Also **supersedes** `remaining-screens-v1.md`'s actions-row button numbers (its 
 **Home text-link spacing:** no change needed. There's no dedicated gap widget between the actions row and the "Home" link today — the row relies on `StickerButton`'s own reserved bottom padding (`restShadowOffset`, now 5dp instead of 4dp) plus the link's own `vertical: 4` padding for breathing room. The actions row's total footprint grows by only ≈5dp, and it sits in a `Column` where the card above is the only `Expanded` child — that ≈5dp is absorbed by the card shrinking slightly, not by anything below it. Leave the `SizedBox(height: 14)` above the row and the link's `Padding(vertical: 4)` exactly as they are.
 
 ### R2.3 Share button arrow — tilted 60° counter-clockwise, via a new opt-in `StickerButton` slot
+
+**Note (Revision 4, 2026-08-05): this section's `-pi/3` (60°) rotation is itself superseded by Revision 4 §R4.2 below (now `-pi/4`, 45°). Everything else here (the additive-slot decision, the literal "→" glyph, the 6dp gap) is unchanged and still current.**
 
 **Decision: (a) — add a strictly-additive, opt-in slot to the shared `StickerButton`, not a one-off widget.** `StickerButton` already has this exact precedent (`showLabelTextShadow`, `fontSize` are both opt-in overrides that default to today's behavior for every other call site) — extending that same pattern is more consistent with this codebase's own conventions than duplicating ~100 lines of press-animation/shadow/disabled-opacity chrome in a parallel one-off widget just to rotate one glyph. A one-off widget would also mean two button implementations to keep visually in sync forever; the additive-slot approach has exactly one.
 
@@ -122,6 +126,26 @@ What genuinely changes is **how much it visibly shrinks** on the rare worst-case
 - It only engages at the doc's own stated *absolute ceiling* for authored content length — the common case (1-line headline + 2–3 line story) still fits with room to spare and is never touched (see R3.1's fit-check).
 - §10.7 already told content authors to treat "~2 lines / ~4 lines" as a bound to write toward, not a target — this revision makes that bound meaningfully harder, and that guidance should now be read as a **hard ceiling**, not a comfortable ballpark. Flag this explicitly to whoever authors/extends the 66 pooled entries: content sitting right at that ceiling will now render visibly smaller than the reference composition, more than before.
 - If this proves too aggressive once real pooled content is reviewed against it, the cheapest lever to claw back headroom without re-opening the empty-gap problem is trimming `CardFooter`'s own 10dp inter-element gaps (untouched by this revision, per R3.3) — flagged here as the next place to look, not something to change now.
+
+---
+
+## Revision 4 — Founder ask: bigger actions-row buttons, shallower arrow (2026-08-05)
+
+**Trigger:** direct founder request — Share/Again read as too small, and the Share arrow's 60° tilt (R2.3) should be shallower/more natural at 45°.
+
+### R4.1 Actions-row buttons — height only, height 44→52 — **supersedes R2.2's height value**
+
+`_ActionsRow`'s Share and Again grow from **44dp to 52dp** height. Explicitly **height only** — `borderRadius` (14), `restShadowOffset` (5), and `fontSize` (falls back to `AppTypography.buttonLabel`'s 14dp default) all stay exactly as R2.2 set them. This was a real decision point (a proportional 14→16/5→6 scale was tried and rejected): scaling the radius/shadow too would have made these buttons rounder *and* chunkier-shadowed than every other button in the app, including Home screen's own hero `Play` button (50dp height, radius/shadow held at 14/5 — R2.2 §49's own point that radius/shadow/font stay constant across a height-only step). Height-only at 52 keeps that same precedent: still the identical `StickerButton` "pattern," just one step taller than the 44dp tier, sitting between it and Home's 50dp hero button on height alone.
+
+**Toast position, re-derived, not re-guessed:** R2.2's "Home text-link spacing: no change needed" is now superseded too — this revision also grows the Home link (see R4.3), so the actions-row-plus-Home-link footprint grows by more than R2.2's ≈5dp. The `'✓ Shared'` toast's `Positioned(bottom: ...)` in `outcome_card_screen.dart` is fixed-offset from the bottom of the same `Stack`, not derived from the buttons/Home link's actual layout — it does not auto-adjust. Re-derived from `62` to `80`, preserving the exact same ~6dp overlap into the button box's empty top padding (never the label itself) that `62` had against the pre-Revision-4 44dp buttons/19dp-tall Home link. Any future resize of this row must re-derive this value the same way, not assume it scales itself.
+
+### R4.2 Share button arrow — 60° → 45° — **supersedes R2.3's rotation value**
+
+`Transform.rotate(angle: -pi/3, ...)` → **`-pi/4`** (still negative/counter-clockwise, still tilting the "→" up-and-to-the-right — just to a shallower, more conventional ~45° north-east diagonal instead of R2.3's steeper 60°). Everything else in R2.3 is unchanged: still the literal "→" glyph (not a Material `Icon`), still a fixed 6dp gap, still sharing the label's color/font but never its text-shadow.
+
+### R4.3 Home text-link — bigger, still a plain link, not a sticker button
+
+Explicitly considered and rejected: converting Home into a third `StickerButton` matching Share/Again's pattern. Kept as a plain text link (R2.2's original call) — just bigger: padding `vertical: 4` → **`8`**, and a local `.copyWith(fontSize: 13)` on this one `Text` (not a change to the shared `AppTypography.ghostLink` constant, which stays `11` for its other two call sites — `share_target_sheet.dart`'s "More…" and `name_capture_view.dart`'s "Skip for now" — both genuinely unaffected).
 
 ---
 

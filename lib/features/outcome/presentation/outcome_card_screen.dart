@@ -367,18 +367,33 @@ class _OutcomeCardScreenState extends ConsumerState<OutcomeCardScreen>
                     GestureDetector(
                       onTap: _onHome,
                       behavior: HitTestBehavior.opaque,
-                      child: const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 4),
-                        child: Text('Home', style: AppTypography.ghostLink),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        // `ghostLink` itself stays at its shared 11dp size
+                        // (also used by "Skip for now"/"More…" elsewhere,
+                        // design v1 Revision 4 §R4.3) — this local
+                        // `.copyWith` bumps only this Home link to 13dp.
+                        child: Text(
+                          'Home',
+                          style: AppTypography.ghostLink.copyWith(fontSize: 13),
+                        ),
                       ),
                     ),
                   ],
                 ),
+                // `bottom: 88` (design v1 Revision 4 §R4.1, up from 62) —
+                // clears the grown Share/Again buttons' top edge entirely
+                // (verified against `tester.getRect()` in
+                // outcome_card_share_sheet_test.dart's overlap regression
+                // test, not just hand-derived arithmetic, which is what
+                // produced this pass's first, still-overlapping attempt at
+                // this value). Re-derive the same way — measure the real
+                // rendered rects — if this row's sizing ever changes again.
                 if (_toastVisible)
                   const Positioned(
                     left: 14,
                     right: 14,
-                    bottom: 62,
+                    bottom: 88,
                     child: ToastPill(text: '✓ Shared'),
                   ),
               ],
@@ -505,9 +520,10 @@ class _ActionsRow extends StatelessWidget {
             textColor: shareText,
             labelShadow: AppColors.ink,
             showLabelTextShadow: false,
-            height: 44,
-            borderRadius: 14,
-            restShadowOffset: 5,
+            // 52dp, height only — borderRadius/restShadowOffset stay at
+            // this widget's own defaults (14/5), matching every other
+            // button in the app (design v1 Revision 4 §R4.1).
+            height: 52,
             showTrailingArrow: true,
             enabled: shareEnabled,
             onPressed: onShare,
@@ -523,9 +539,8 @@ class _ActionsRow extends StatelessWidget {
             textColor: AppColors.ink,
             labelShadow: AppColors.ink,
             showLabelTextShadow: false,
-            height: 44,
-            borderRadius: 14,
-            restShadowOffset: 5,
+            // 52dp alongside Share — see the Share button above.
+            height: 52,
             onPressed: onAgain,
           ),
         ),
