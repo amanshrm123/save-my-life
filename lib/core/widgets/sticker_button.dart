@@ -101,8 +101,8 @@ class _StickerButtonState extends State<StickerButton>
 
   /// The button's text content — a bare centered [Text] by default, or (when
   /// [StickerButton.showTrailingArrow] is set) a [Row] with the label
-  /// followed by a 6dp gap and a "→" rotated -60° (`-pi/3`, design v1
-  /// Revision 2 §R2.3) to tilt it up-and-to-the-right. The arrow shares the
+  /// followed by a 6dp gap and a "→" rotated -45° (`-pi/4`, design v1
+  /// Revision 4 §R4.2) to tilt it up-and-to-the-right. The arrow shares the
   /// label's color/font, but never its `shadows:` — a straight-down text
   /// shadow rotates along with `Transform.rotate`, which would visibly
   /// mismatch the label's own un-rotated shadow, so the arrow is always
@@ -129,7 +129,7 @@ class _StickerButtonState extends State<StickerButton>
       children: [
         Text(widget.label, style: labelStyle),
         const SizedBox(width: 6),
-        Transform.rotate(angle: -pi / 3, child: Text('→', style: baseStyle)),
+        Transform.rotate(angle: -pi / 4, child: Text('→', style: baseStyle)),
       ],
     );
   }

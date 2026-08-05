@@ -6,10 +6,11 @@ import 'package:timing_tap/core/theme/app_theme.dart';
 import 'package:timing_tap/core/widgets/sticker_button.dart';
 
 /// Coverage for `StickerButton`'s opt-in `showTrailingArrow` slot (design v1
-/// Revision 2 §R2.3): a strictly-additive param that defaults to `false` so
-/// every pre-existing call site (14+ across the app) renders exactly as
-/// before, and — when opted in — appends a `Transform.rotate(-pi/3)`-wrapped
-/// "→" glyph after the label, sharing its text style.
+/// Revision 2 §R2.3, rotation value per Revision 4 §R4.2): a strictly-
+/// additive param that defaults to `false` so every pre-existing call site
+/// (14+ across the app) renders exactly as before, and — when opted in —
+/// appends a `Transform.rotate(-pi/4)`-wrapped "→" glyph after the label,
+/// sharing its text style.
 void main() {
   Widget harness(Widget child) {
     return MaterialApp(home: Scaffold(body: Center(child: child)));
@@ -58,16 +59,17 @@ void main() {
     expect(find.text('Share'), findsOneWidget);
     expect(find.text('→'), findsOneWidget);
 
-    // The arrow is wrapped in its own Transform.rotate at exactly -pi/3
-    // (-60 degrees, tilting the rightward arrow up-and-to-the-right) —
-    // distinct from the label, which is not rotated.
+    // The arrow is wrapped in its own Transform.rotate at exactly -pi/4
+    // (-45 degrees, this pass — shallower than the original -60°/-pi/3 —
+    // tilting the rightward arrow up-and-to-the-right) — distinct from the
+    // label, which is not rotated.
     final arrowTransform = tester.widget<Transform>(
       find.ancestor(of: find.text('→'), matching: find.byType(Transform)).first,
     );
     // Transform.rotate builds a rotation matrix; sanity-check it isn't the
     // identity matrix (i.e. some rotation is actually applied) and matches
-    // the expected -pi/3 rotation matrix directly.
-    final expected = Matrix4.rotationZ(-pi / 3);
+    // the expected -pi/4 rotation matrix directly.
+    final expected = Matrix4.rotationZ(-pi / 4);
     expect(arrowTransform.transform, expected);
 
     // Same label TextStyle (color/font) is shared by both Text widgets.
@@ -79,7 +81,8 @@ void main() {
   });
 
   testWidgets('showTrailingArrow: true still centers content with no '
-      'overflow at the grown 44dp button size', (tester) async {
+      'overflow at the grown 52dp button size (Outcome Card Share/Again, '
+      'this pass)', (tester) async {
     await tester.pumpWidget(
       harness(
         SizedBox(
@@ -89,9 +92,9 @@ void main() {
             fill: AppColors.red,
             labelShadow: AppColors.ink,
             showTrailingArrow: true,
-            height: 44,
-            borderRadius: 14,
-            restShadowOffset: 5,
+            height: 52,
+            borderRadius: 16,
+            restShadowOffset: 6,
             onPressed: () {},
           ),
         ),

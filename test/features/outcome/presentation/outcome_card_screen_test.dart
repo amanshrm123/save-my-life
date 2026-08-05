@@ -325,8 +325,10 @@ void main() {
   );
 
   testWidgets(
-    'REGRESSION: _ActionsRow actually passes the grown 44dp height to both '
-    'its Share and Again StickerButtons (not the old 40dp)',
+    'REGRESSION: _ActionsRow actually passes the grown 52dp height to both '
+    'its Share and Again StickerButtons (not the old 44dp) — height only '
+    '(design v1 Revision 4 §R4.1): borderRadius/restShadowOffset stay at '
+    "the widget's own 14/5 defaults, matching every other button in the app",
     (tester) async {
       final s = summary();
       await tester.pumpWidget(harness(s));
@@ -336,8 +338,7 @@ void main() {
       final buttons = tester.widgetList<StickerButton>(find.byType(StickerButton)).toList();
       expect(buttons.length, 2, reason: 'exactly Share + Again on the resolved card');
       for (final button in buttons) {
-        expect(button.height, 44);
-        expect(button.height, isNot(40));
+        expect(button.height, 52);
         expect(button.borderRadius, 14);
         expect(button.restShadowOffset, 5);
       }

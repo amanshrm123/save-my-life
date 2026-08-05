@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:timing_tap/core/widgets/sticker_button.dart';
+import 'package:timing_tap/core/widgets/toast_pill.dart';
 import 'package:timing_tap/features/outcome/presentation/outcome_card_screen.dart';
 import 'package:timing_tap/features/play_loop/domain/run_state.dart';
 import 'package:timing_tap/features/play_loop/domain/run_summary.dart';
@@ -227,6 +228,52 @@ void main() {
 
       expect(find.byType(ShareTargetSheet), findsNothing);
       expect(find.text('✓ Shared'), findsOneWidget, reason: 'the only path that shows this toast');
+    },
+  );
+
+  testWidgets(
+    'REGRESSION: the "✓ Shared" toast never visually overlaps the grown '
+    'Share/Again buttons (design v1 Revision 4 §R4.1 — the toast\'s '
+    'Positioned(bottom:) is a fixed offset, not derived from the actions '
+    "row's actual layout, so a button-height change doesn't auto-adjust it)",
+    (tester) async {
+      final fakeRenderer = _FakeCardRenderer();
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            cardRendererProvider.overrideWithValue(fakeRenderer),
+            installedTargetsProvider.overrideWith((ref) async => const <ShareTarget>[]),
+            shareServiceProvider.overrideWithValue(const _StubShareService()),
+          ],
+          child: MaterialApp(home: OutcomeCardScreen(summary: summary())),
+        ),
+      );
+      await tester.pump(const Duration(seconds: 2));
+      await tester.pump(const Duration(milliseconds: 100));
+
+      await tapAndSettle(tester, find.widgetWithText(StickerButton, 'Share'));
+      await tester.runAsync(() async {
+        await tester.tap(find.text('More…'));
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      });
+      await tester.pumpAndSettle();
+      expect(find.text('✓ Shared'), findsOneWidget);
+
+      final toastRect = tester.getRect(find.byType(ToastPill));
+      for (final button in tester.widgetList<StickerButton>(find.byType(StickerButton))) {
+        final buttonRect = tester.getRect(
+          find.byWidgetPredicate((w) => w is StickerButton && w.label == button.label),
+        );
+        expect(
+          toastRect.overlaps(buttonRect),
+          isFalse,
+          reason:
+              'the toast must clear the ${button.label} button entirely — '
+              'if this fails after a future button/Home-link resize, '
+              're-derive Positioned(bottom:) the same way design v1 '
+              'Revision 4 §R4.1 documents, not by re-guessing a number',
+        );
+      }
     },
   );
 
