@@ -1,6 +1,7 @@
-/// Daily-reminder scheduling seam (architecture v3 §5/§8) — Android-only
-/// real implementation; web/iOS get a no-op (same interface-first pattern
-/// as `AdService`).
+/// Daily-reminder scheduling seam (architecture v3 §5/§8) — Android and iOS
+/// both get real implementations (`AndroidReminderService`,
+/// `IosReminderService`); web gets a no-op (same interface-first pattern as
+/// `AdService`).
 abstract class ReminderService {
   /// Requests the OS notification permission (Android 13+ `POST_NOTIFICATIONS`
   /// via the plugin). Returns whether it was granted.

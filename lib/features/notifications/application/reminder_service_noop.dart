@@ -1,8 +1,9 @@
 import 'reminder_service.dart';
 
-/// Web/iOS no-op (architecture v3 §5/§8's interface-first pattern) — this
-/// dev target ships Android + web only (no iOS toolchain available), so the
-/// no-op mainly serves web; never throws, never schedules anything real.
+/// Web no-op (architecture v3 §5/§8's interface-first pattern) — Android and
+/// iOS both get real implementations, so this is reached only on web (and as
+/// a defensive fallback for any other/unknown platform); never throws, never
+/// schedules anything real.
 class NoopReminderService implements ReminderService {
   const NoopReminderService();
 

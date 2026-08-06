@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart' show kDebugMode, kIsWeb;
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -21,13 +21,16 @@ import '../state/settings_providers.dart';
 /// served by the same Cloudflare Worker that already hosts `kStoryConfigUrl`
 /// (see tools/story-content/cloudflare-worker/). One shared Dart constant
 /// each, so both Android and iOS open the identical hosted page — there is
-/// no per-platform URL to keep in sync. `_kRateUrl` remains a founder-
-/// provided placeholder per architecture v3 §1 item 6 / §12 flag 6 (an app
-/// store listing doesn't exist yet to link to) — no code change needed
-/// beyond that one constant whenever it's provided.
+/// no per-platform URL to keep in sync.
+///
+/// There used to be a third row here, "Rate the game" (`_kRateUrl`), pointing
+/// at a founder-provided placeholder `stayalive.app/rate`. Removed: that
+/// domain isn't ours, and it resolves to a real, unrelated third-party
+/// site — confirmed via `curl`, not assumed. Re-add the row only once a real
+/// App Store/Play Store listing exists to link to; don't reintroduce a
+/// placeholder URL we don't control.
 const String _kPrivacyUrl = 'https://soft-waterfall-3e3e.amanshrm74.workers.dev/privacy';
 const String _kTermsUrl = 'https://soft-waterfall-3e3e.amanshrm74.workers.dev/terms';
-const String _kRateUrl = 'https://stayalive.app/rate';
 
 /// One scrollable Settings screen (design v3 §6.1) — the mockup's two
 /// phone-frame screenshots (7.1 toggles/name, 7.2 legal/reset) are a
@@ -186,13 +189,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     chevron: true,
                     onTap: () => _openUrl(_kTermsUrl),
                   ),
-                  if (!kIsWeb)
-                    _SettingsRow(
-                      emoji: '⭐',
-                      label: 'Rate the game',
-                      chevron: true,
-                      onTap: () => _openUrl(_kRateUrl),
-                    ),
                   _SettingsRow(
                     emoji: '🗑',
                     label: 'Reset progress',

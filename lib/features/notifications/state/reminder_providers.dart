@@ -5,20 +5,32 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../settings/state/settings_providers.dart';
 import '../application/reminder_service.dart';
 import '../application/reminder_service_android.dart';
+import '../application/reminder_service_ios.dart';
 import '../application/reminder_service_noop.dart';
 
 /// Default reminder hour (architecture v3 §8, flagged as a tunable default,
 /// not founder-pinned beyond "19:00 local").
 const int kDefaultReminderHour = 19;
 
-/// Android-only real service; web (and any other non-Android platform) gets
-/// the no-op (architecture §5/§8's interface-first pattern). `kIsWeb` is
-/// checked first so `defaultTargetPlatform` is never consulted in a context
-/// where it would be meaningless.
+/// Plain top-level function — not buried inside the provider body — so all
+/// three branches — Android real, iOS real, web/other no-op — are directly
+/// unit-testable without needing a real `--dart-define`/platform override
+/// at test time. `isWeb` is checked first so [platform] is never consulted
+/// in a context where it would be meaningless (architecture §5/§8's
+/// interface-first pattern).
+ReminderService createReminderService(TargetPlatform platform, {required bool isWeb}) {
+  if (isWeb) return const NoopReminderService();
+  if (platform == TargetPlatform.android) {
+    return AndroidReminderService(FlutterLocalNotificationsPlugin());
+  }
+  if (platform == TargetPlatform.iOS) {
+    return IosReminderService(FlutterLocalNotificationsPlugin());
+  }
+  return const NoopReminderService();
+}
+
 final Provider<ReminderService> reminderServiceProvider = Provider<ReminderService>((ref) {
-  if (kIsWeb) return const NoopReminderService();
-  if (defaultTargetPlatform != TargetPlatform.android) return const NoopReminderService();
-  return AndroidReminderService(FlutterLocalNotificationsPlugin());
+  return createReminderService(defaultTargetPlatform, isWeb: kIsWeb);
 });
 
 /// Orchestrates enable/disable/reconcile (architecture v3 §8/§11 risk 1).

@@ -117,6 +117,31 @@ void main() {
       expect(result.isValid, isFalse);
       expect(result.reason, NameRejectReason.tooLong);
     });
+
+    test('a single character is rejected as tooShort (below the floor)', () {
+      final result = validator.validate('A');
+      expect(result.isValid, isFalse);
+      expect(result.reason, NameRejectReason.tooShort);
+    });
+
+    test('exactly 2 characters is accepted (at the floor)', () {
+      final result = validator.validate('Jo');
+      expect(result.isValid, isTrue);
+      expect(result.sanitized, 'Jo');
+    });
+
+    test(
+      'a single composite ZWJ emoji cluster is still accepted despite being '
+      'only 1 cluster — the tooShort floor exempts emoji, matching the '
+      'emoji-regression tests above that already protect this exact case',
+      () {
+        const family =
+            '\u{1F468}\u{200D}\u{1F469}\u{200D}\u{1F467}\u{200D}\u{1F466}';
+        expect(family.characters.length, 1);
+        final result = validator.validate(family);
+        expect(result.isValid, isTrue, reason: result.reason?.toString());
+      },
+    );
   });
 
   group('NameValidator - rule order & each NameRejectReason reachable', () {
@@ -140,6 +165,23 @@ void main() {
       expect(result.isValid, isFalse);
       expect(result.reason, NameRejectReason.tooLong);
     });
+
+    test('a single character -> tooShort reason', () {
+      final result = validator.validate('A');
+      expect(result.isValid, isFalse);
+      expect(result.reason, NameRejectReason.tooShort);
+    });
+
+    test(
+      'the tooShort floor only catches a single plain letter/digit cluster — '
+      'a single symbol like "@" falls through to the character-set check '
+      'and is rejected as illegalChars instead, not tooShort',
+      () {
+        final result = validator.validate('@');
+        expect(result.isValid, isFalse);
+        expect(result.reason, NameRejectReason.illegalChars);
+      },
+    );
 
     test('disallowed character (e.g. "@") -> illegalChars reason', () {
       final result = validator.validate('Aman@');
