@@ -809,9 +809,10 @@ void main() {
     });
   });
 
-  group('final band (finalBandArmed/finalBandRunning) — sudden death (architecture v2 §4)', () {
-    test('a non-miss (Perfect) in the final band ends the run as survived, '
-        'with no incremental life change', () async {
+  group('final band (finalBandArmed/finalBandRunning) — sudden death (architecture v2 §4, '
+      'tightened to Perfect-only 2026-08-07)', () {
+    test('a Perfect in the final band ends the run as survived, with no '
+        'incremental life change', () async {
       final container = await buildContainer();
       final c = container.read(runControllerProvider.notifier);
       c.state = c.state.copyWith(phase: RunPhase.finalBandArmed, lifePercent: 4);
@@ -826,16 +827,20 @@ void main() {
       expect(c.state.outcome, RunOutcome.survived);
     });
 
-    test('a non-miss (Hit, not just Perfect) in the final band also survives', () async {
+    test('a Hit (not Perfect) in the final band ends the run as death, not '
+        'survived — the last chance is stricter than a normal attempt, where '
+        'Hit is still a fully good outcome', () async {
       final container = await buildContainer();
       final c = container.read(runControllerProvider.notifier);
-      c.state = c.state.copyWith(phase: RunPhase.finalBandArmed, lifePercent: 4);
+      c.state = c.state.copyWith(phase: RunPhase.finalBandArmed, lifePercent: 4, deaths: 9);
 
       final tier = forceStop(c, hitOffset);
       expect(tier, StopTier.hit);
 
       c.advanceAfterDwell();
-      expect(c.state.outcome, RunOutcome.survived);
+      expect(c.state.phase, RunPhase.ended);
+      expect(c.state.outcome, RunOutcome.death);
+      expect(c.state.deaths, 10);
     });
 
     test('a Miss in the final band ends the run as death and increments the '
@@ -1320,13 +1325,13 @@ void main() {
       expect(summary.isAnonymous, isFalse);
     });
 
-    test('a survived outcome (final-band non-miss): outcome is survived and '
+    test('a survived outcome (final-band Perfect): outcome is survived and '
         'min/peak reflect the run, and an empty stored name renders anonymous', () async {
       final container = await buildContainerWithName('');
       final c = container.read(runControllerProvider.notifier);
       c.state = c.state.copyWith(phase: RunPhase.finalBandArmed, lifePercent: 4);
 
-      forceStop(c, perfectOffset); // non-miss in final band -> survived
+      forceStop(c, perfectOffset); // Perfect in final band -> survived
       c.advanceAfterDwell();
 
       final summary = c.buildSummary();

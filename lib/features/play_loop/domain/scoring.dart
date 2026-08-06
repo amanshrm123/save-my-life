@@ -17,6 +17,16 @@ StopTier classifyStop({
   return StopTier.miss;
 }
 
+/// Whether a final-band (sudden-death) stop survives (founder decision,
+/// 2026-08-07): only a Perfect clears the last chance — Hit and Miss both
+/// end the run as death there. Deliberately stricter than a normal attempt,
+/// where Hit is still a fully "good" outcome (+2% life, no streak break
+/// requirement) — this only tightens the bar for the single sudden-death
+/// tap. Shared by `RunController._resolveStop` and `OutcomeFlash` so the
+/// state machine's actual outcome and the SURVIVED/MISS flash the player
+/// sees can never disagree with each other.
+bool survivesFinalBand(StopTier tier) => tier == StopTier.perfect;
+
 /// Life delta for a given tier (architecture v2 §3): Perfect +3%, Hit +2%,
 /// Miss -5%. Not applied in the final band, which is sudden-death instead
 /// (architecture v2 §4) — callers must not call this for a final-band

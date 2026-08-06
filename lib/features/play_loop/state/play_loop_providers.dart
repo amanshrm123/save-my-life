@@ -248,7 +248,7 @@ class RunController extends Notifier<RunState> {
 
     if (state.phase == RunPhase.finalBandRunning) {
       // Sudden death: no incremental life delta, terminal either way.
-      final survived = tier != StopTier.miss;
+      final survived = survivesFinalBand(tier);
       _pending = survived ? _PendingAdvance.endSurvived : _PendingAdvance.endDeath;
       state = state.copyWith(
         phase: RunPhase.stopped,
