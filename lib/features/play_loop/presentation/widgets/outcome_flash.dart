@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../domain/run_config.dart';
 import '../../domain/run_state.dart';
+import '../../domain/scoring.dart';
 
 /// The PERFECT/HIT/MISS flash pill (design spec v1 §1.4, §2.5/§2.6). Only
 /// meaningful while `state.phase == RunPhase.stopped`.
@@ -12,7 +13,8 @@ import '../../domain/run_state.dart';
 /// differ only in label text. The final-band terminal stop (design spec v1
 /// §2.7's "missing frame", filled in there) shows "SURVIVED"/"MISS" with no
 /// percentage label instead, since no incremental life delta is applied in
-/// sudden death.
+/// sudden death — and unlike a normal attempt, only a Perfect earns
+/// "SURVIVED" there ([survivesFinalBand]); a Hit flashes "MISS" too.
 class OutcomeFlash extends StatelessWidget {
   const OutcomeFlash({super.key, required this.state, this.config = RunConfig.defaults});
 
@@ -29,7 +31,7 @@ class OutcomeFlash extends StatelessWidget {
     final String label;
     final bool good;
     if (state.lastStopWasFinalBand) {
-      good = tier != StopTier.miss;
+      good = survivesFinalBand(tier);
       label = good ? 'SURVIVED' : 'MISS';
     } else {
       good = tier != StopTier.miss;
