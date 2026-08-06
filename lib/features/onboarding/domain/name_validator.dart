@@ -9,7 +9,7 @@ import 'package:characters/characters.dart';
 import 'profanity_filter.dart';
 
 /// Why a raw name string was rejected by [NameValidator.validate].
-enum NameRejectReason { tooLong, empty, illegalChars, disallowedWord }
+enum NameRejectReason { tooShort, tooLong, empty, illegalChars, disallowedWord }
 
 /// Result of validating a raw name string.
 class NameValidationResult {
@@ -37,6 +37,13 @@ class NameValidator {
   final ProfanityFilter profanityFilter;
 
   static const int maxLength = 12;
+
+  /// A single character was, until now, a fully accepted name — this cap
+  /// exists purely so "A" (or any 1-cluster string) is rejected with a clear
+  /// signal, matching the same live-disabled-button UX `tooLong`/
+  /// `illegalChars` already get, rather than silently letting the shortest
+  /// possible name straight through with no floor at all.
+  static const int minLength = 2;
 
   /// Zero-width joiner, variation selectors, combining enclosing keycap, and
   /// skin-tone modifiers: the codepoints that stitch multiple emoji
@@ -104,6 +111,22 @@ class NameValidator {
     }
 
     final clusters = sanitized.characters;
+    // `clusters.length < minLength` only ever means exactly 1 cluster here
+    // (0 is already handled by the `isEmpty` check above) — but a single
+    // cluster isn't automatically "too short": a lone flag/ZWJ-family/
+    // skin-tone emoji is already a complete, meaningful identity on its own
+    // (the emoji regression tests above explicitly protect exactly this).
+    // The floor only applies when that one cluster is a plain letter/digit/
+    // punctuation mark — genuinely not enough to be a name — deferring
+    // anything else (including something that turns out not to be a real
+    // emoji either, e.g. a bare "@") to the character-set check below.
+    if (clusters.length < minLength && _simpleClusterRegex.hasMatch(clusters.first)) {
+      return NameValidationResult(
+        isValid: false,
+        sanitized: sanitized,
+        reason: NameRejectReason.tooShort,
+      );
+    }
     if (clusters.length > maxLength) {
       return NameValidationResult(
         isValid: false,
