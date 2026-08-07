@@ -106,4 +106,35 @@ void main() {
     expect(find.text('Edit name'), findsOneWidget);
     expect(find.text('Save'), findsOneWidget);
   });
+
+  // REGRESSION (found via live E2E testing 2026-08-07): this dialog used to
+  // show the profanity-specific "That word isn't allowed — it shows on
+  // shared cards" note for EVERY rejection reason, including a too-short
+  // name — actively misleading, since "A" has nothing to do with the
+  // profanity filter. Each `NameRejectReason` must surface its own accurate
+  // message.
+  testWidgets('a too-short (1-character) name shows a length-specific '
+      'message, not the profanity-filter message', (tester) async {
+    await pumpDialog(tester);
+
+    await tester.enterText(find.byType(TextField), 'A');
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Too short'), findsOneWidget);
+    expect(find.textContaining("isn't allowed"), findsNothing);
+    expect(find.text('Pick another name'), findsOneWidget);
+  });
+
+  testWidgets('an empty name shows an "enter a name" message, not the '
+      'profanity-filter message', (tester) async {
+    await pumpDialog(tester);
+
+    await tester.enterText(find.byType(TextField), '');
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Enter a name'), findsOneWidget);
+    expect(find.textContaining("isn't allowed"), findsNothing);
+  });
 }

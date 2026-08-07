@@ -40,8 +40,33 @@ class _EditNameDialogState extends ConsumerState<EditNameDialog> {
     text: widget.initialName,
   );
 
-  bool _rejected = false;
+  NameRejectReason? _rejectReason;
   bool _submitting = false;
+
+  bool get _rejected => _rejectReason != null;
+
+  /// Per-[NameRejectReason] copy — bug fix: this dialog used to show the
+  /// profanity-specific "That word isn't allowed" note for every rejection
+  /// reason (too short, too long, illegal characters, empty), which is
+  /// actively misleading for e.g. a 1-character name. Onboarding's
+  /// `NameCaptureView` avoids this by live-disabling its submit button for
+  /// every reason except [NameRejectReason.disallowedWord] (checked only on
+  /// submit, per architecture v1 §5) — this dialog has no live gate, so it
+  /// needs its own accurate message per reason instead.
+  String _messageFor(NameRejectReason reason) {
+    switch (reason) {
+      case NameRejectReason.empty:
+        return 'Enter a name first';
+      case NameRejectReason.tooShort:
+        return 'Too short — at least ${NameValidator.minLength} characters';
+      case NameRejectReason.tooLong:
+        return 'Too long — ${NameValidator.maxLength} characters max';
+      case NameRejectReason.illegalChars:
+        return 'Only letters, numbers, spaces, and emoji are allowed';
+      case NameRejectReason.disallowedWord:
+        return "That word isn't allowed — it shows on shared cards";
+    }
+  }
 
   @override
   void dispose() {
@@ -54,7 +79,7 @@ class _EditNameDialogState extends ConsumerState<EditNameDialog> {
     final result = _validator.validate(_controller.text);
     if (!result.isValid) {
       HapticFeedback.mediumImpact();
-      setState(() => _rejected = true);
+      setState(() => _rejectReason = result.reason);
       return;
     }
     setState(() => _submitting = true);
@@ -140,7 +165,7 @@ class _EditNameDialogState extends ConsumerState<EditNameDialog> {
                     isCollapsed: true,
                   ),
                   onChanged: (_) {
-                    if (_rejected) setState(() => _rejected = false);
+                    if (_rejected) setState(() => _rejectReason = null);
                   },
                 ),
               ),
@@ -162,11 +187,9 @@ class _EditNameDialogState extends ConsumerState<EditNameDialog> {
                   },
                 ),
               ),
-              if (_rejected) ...[
+              if (_rejectReason case final reason?) ...[
                 const SizedBox(height: 8),
-                NoteChip.error(
-                  text: "That word isn't allowed — it shows on shared cards",
-                ),
+                NoteChip.error(text: _messageFor(reason)),
               ],
               const SizedBox(height: 16),
               StickerButton(
