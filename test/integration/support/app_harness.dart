@@ -118,10 +118,43 @@ Future<void> completeOnboarding(WidgetTester tester, {String? name}) async {
   await tester.pumpAndSettle();
 }
 
+/// Pumps a fixed, generous window instead of `pumpAndSettle()`. Genuinely
+/// necessary from here on for anything that mounts `PlayLoopScreen`: its
+/// `LifeAvatar` runs a deliberately always-`repeat()`-ing `AnimationController`
+/// for the juice-spec "sloshing liquid" wave (`AvatarFigure`'s
+/// `continuousWave` mode) — exactly the kind of perpetual-motion animation
+/// `pumpAndSettle()` can never settle past, since it keeps scheduling new
+/// frames forever and the call times out. [extra] comfortably clears every
+/// one-shot transition/timer actually in play at these call sites (route
+/// transitions are 280ms, the post-stop flash-dwell timer is 600ms) without
+/// slowing the suite down chasing a real settle that will never come.
+///
+/// Steps through [extra] in ~16ms (one-frame) increments (code-review fix
+/// #6) rather than a single bulk `pump(extra)` — a bulk pump only evaluates
+/// the animation curve(s) at ONE point in time (the end), which is fine for
+/// a single-stage tween but too coarse for anything multi-stage (e.g. the
+/// outcome card's `TweenSequence`-driven entrance reveals, or an
+/// `AnimatedSwitcher` cross-fade) that genuinely needs intermediate frames
+/// to animate through correctly. Still fully bounded/terminating — just at
+/// real per-frame granularity instead of two giant leaps.
+Future<void> _pumpBriefly(
+  WidgetTester tester, [
+  Duration extra = const Duration(milliseconds: 500),
+]) async {
+  await tester.pump();
+  const step = Duration(milliseconds: 16);
+  var remaining = extra;
+  while (remaining > Duration.zero) {
+    final thisStep = remaining < step ? remaining : step;
+    await tester.pump(thisStep);
+    remaining -= thisStep;
+  }
+}
+
 /// Taps Home's big "Play" button and settles into the Play Loop countdown.
 Future<void> tapPlayFromHome(WidgetTester tester) async {
   await tester.tap(find.widgetWithText(StickerButton, 'Play'));
-  await tester.pumpAndSettle();
+  await _pumpBriefly(tester);
 }
 
 /// Reads Home's `StatTile` value for the given [label] (e.g. `'Deaths'`,
@@ -157,7 +190,7 @@ RunController runControllerOf(WidgetTester tester) {
 /// `play_loop_screen_test.dart`.
 Future<void> pumpPastCountdown(WidgetTester tester) async {
   await tester.pump(const Duration(milliseconds: 2200));
-  await tester.pumpAndSettle();
+  await _pumpBriefly(tester);
 }
 
 /// Burns real wall-clock time so `GameClock`'s underlying real `Stopwatch`
@@ -197,7 +230,13 @@ const missOffset = Duration(seconds: 5);
 /// (re-arm / final-band / ended-and-handoff-to-outcome).
 Future<void> flushDwell(WidgetTester tester) async {
   await tester.pump(const Duration(milliseconds: 700));
-  await tester.pumpAndSettle();
+  // A generous 1600ms window (not just `_pumpBriefly`'s default 500ms):
+  // when this dwell is the run's terminal one, it also needs to carry
+  // `OutcomeCardScreen` past its own `kMinStoryLoadDuration` (1000ms) real
+  // loader floor before callers can assert on the resolved card's content —
+  // still bounded/finite, so still safe against `LifeAvatar`'s continuous
+  // wave on whichever screen is actually current.
+  await _pumpBriefly(tester, const Duration(milliseconds: 1600));
 }
 
 /// Drives whatever run is currently live to a **death**, via genuine real

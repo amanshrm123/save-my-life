@@ -462,10 +462,11 @@ class _RunningContent extends StatelessWidget {
         ),
         const SizedBox(height: 10),
         // Isolates the 60fps `ValueListenableBuilder` digit updates from the
-        // rest of the HUD's paint layer (notably `LifeAvatar`'s heavier
-        // `CustomPainter`) — the avatar itself deliberately has no boundary
-        // (product-architect: not worth the memory cost for a large,
-        // rarely-changing element); this small, genuinely-60fps plate is.
+        // rest of the HUD's paint layer — `LifeAvatar` now also owns its
+        // own `RepaintBoundary` (code-review fix: juice spec effect 1 gave
+        // it a continuous 60fps "sloshing" wave, which used to dirty this
+        // whole HUD row every tick with no boundary of its own; it now
+        // isolates that repaint too, same reasoning as this plate's).
         RepaintBoundary(
           child: StopwatchPlate(
             filled: false,

@@ -151,6 +151,13 @@ class OutcomeCardShell extends StatelessWidget {
 
   static const double referenceWidth = 250;
 
+  /// The card's own corner radius at `k == 1` (i.e. at [referenceWidth]) —
+  /// shared with anything else that needs to know the card's real rounded-
+  /// rect shape at runtime (code-review fix: the Eternal shine/sparks
+  /// overlay's clip used to hardcode a second copy of this same `26`, which
+  /// could silently drift from this one; it now reads this constant instead).
+  static const double cornerRadiusAtReferenceWidth = 26;
+
   @override
   Widget build(BuildContext context) {
     return AspectRatio(
@@ -163,7 +170,7 @@ class OutcomeCardShell extends StatelessWidget {
             decoration: BoxDecoration(
               color: palette.cardGradient == null ? palette.cardColor : null,
               gradient: palette.cardGradient,
-              borderRadius: BorderRadius.circular(26 * k),
+              borderRadius: BorderRadius.circular(cornerRadiusAtReferenceWidth * k),
               boxShadow: [
                 BoxShadow(
                   color: AppColors.ink.withValues(alpha: 0.20),

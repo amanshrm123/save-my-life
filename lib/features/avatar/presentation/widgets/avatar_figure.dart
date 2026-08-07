@@ -1,3 +1,5 @@
+import 'dart:math' show pi, sin;
+
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_theme.dart';
@@ -17,14 +19,29 @@ const double _kUnitHeight = 104;
 ///
 /// The fill animates via an implicit `TweenAnimationBuilder` (matching
 /// `LifeBar`'s `AnimatedContainer` convention) rather than a manually-owned
-/// `AnimationController` — nothing here needs an explicit `dispose()`, and
-/// the animation only ever runs while this widget is actually built/mounted.
-class AvatarFigure extends StatelessWidget {
+/// `AnimationController` when [continuousWave] is `false` — nothing in that
+/// path needs an explicit `dispose()`, and the animation only ever runs
+/// while this widget is actually built/mounted. This is Home's/the avatar
+/// picker's path (default) and is byte-for-byte unchanged from before this
+/// widget grew a `continuousWave` mode.
+///
+/// When [continuousWave] is `true` (juice spec effect 1, Play-screen
+/// `LifeAvatar` only), this widget instead owns two `AnimationController`s:
+/// one always-`repeat()`-ing controller driving an organic "sloshing
+/// liquid" wave phase on the fill's top edge, and one short-lived easing
+/// controller that restarts whenever [fillPercent] changes, both to drive
+/// the actual bottom-up fill height AND to signal "a fill change is in
+/// flight" so the wave can briefly grow choppier. The fill COLOR is still
+/// driven purely by the existing instant `avatarFillColorForPercent` — no
+/// color-tween machinery is added here (out of scope for this pass, see
+/// this feature's implementation notes).
+class AvatarFigure extends StatefulWidget {
   const AvatarFigure({
     super.key,
     required this.spec,
     required this.fillPercent,
     this.shouldAnimate = true,
+    this.continuousWave = false,
   });
 
   final AvatarSpec spec;
@@ -34,38 +51,204 @@ class AvatarFigure extends StatelessWidget {
   final int fillPercent;
 
   /// Whether the bottom-up fill height should animate towards [fillPercent]
-  /// via the implicit `TweenAnimationBuilder`, or snap straight to it with no
-  /// interpolation. Home threads its own `RouteAware` visibility signal in
-  /// here (see `_HomeScreenState`): the tween must not run while Home sits
-  /// mounted-but-offscreen (behind Play/Outcome), since it would silently
-  /// finish before the player ever sees it, replacing the intended animated
-  /// fill change with a snap once Home becomes visible again.
+  /// (via the implicit `TweenAnimationBuilder` when [continuousWave] is
+  /// `false`, or via the owned fill-easing `AnimationController` when it's
+  /// `true`), or snap straight to it with no interpolation. Home threads its
+  /// own `RouteAware` visibility signal in here (see `_HomeScreenState`): the
+  /// tween must not run while Home sits mounted-but-offscreen (behind
+  /// Play/Outcome), since it would silently finish before the player ever
+  /// sees it, replacing the intended animated fill change with a snap once
+  /// Home becomes visible again.
   final bool shouldAnimate;
+
+  /// Juice spec effect 1: continuous "sloshing liquid" wave on the fill's
+  /// top edge, plus a boosted wave amplitude while a fill change is in
+  /// flight. Only the Play-screen `LifeAvatar` passes `true` — every other
+  /// call site (Home avatar card, avatar picker tiles) keeps the default
+  /// `false`, rendering exactly as before (flat fill top, no continuous
+  /// ticking).
+  final bool continuousWave;
+
+  @override
+  State<AvatarFigure> createState() => _AvatarFigureState();
+}
+
+class _AvatarFigureState extends State<AvatarFigure>
+    with TickerProviderStateMixin {
+  /// One full wave cycle (2π rad) every ~1.16s — derived from the approved
+  /// mockup's per-frame phase increment (≈0.09 rad per 1/60s frame ≈ 5.4
+  /// rad/s), converted into a controller-duration/`repeat()` setup instead
+  /// of a hand-rolled per-frame increment so the rate stays frame-rate
+  /// independent.
+  static const Duration _kWaveCycleDuration = Duration(milliseconds: 1164);
+
+  /// How long the fill-height easing controller takes to settle on a new
+  /// [AvatarFigure.fillPercent] target, in the `continuousWave` path.
+  static const Duration _kFillEaseDuration = Duration(milliseconds: 350);
+
+  /// Base wave amplitude (logical px at the `_kUnitWidth`/104 painter
+  /// scale) while no fill change is in flight.
+  static const double _kBaseWaveAmplitude = 2.5;
+
+  /// Extra amplitude added on top of [_kBaseWaveAmplitude] while the fill
+  /// controller `isAnimating` (i.e. a life-change "slosh" is in flight).
+  static const double _kBoostWaveAmplitude = 3.0;
+
+  AnimationController? _waveController;
+  AnimationController? _fillController;
+
+  /// The fill-easing controller's current begin/end targets (0-100), reset
+  /// on every real [AvatarFigure.fillPercent] change so the easing always
+  /// starts from wherever the fill visually is right now, not from 0.
+  double _fillBegin = 0;
+  double _fillEnd = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _fillEnd = widget.fillPercent.clamp(0, 100).toDouble();
+    _fillBegin = widget.continuousWave ? 0 : _fillEnd;
+    if (widget.continuousWave) {
+      _waveController = AnimationController(
+        vsync: this,
+        duration: _kWaveCycleDuration,
+      );
+      final fillController = AnimationController(
+        vsync: this,
+        duration: _kFillEaseDuration,
+      );
+      _fillController = fillController;
+      if (widget.shouldAnimate) {
+        fillController.forward(from: 0);
+      } else {
+        fillController.value = 1;
+      }
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final waveController = _waveController;
+    if (waveController == null) return;
+    // Reduce Motion: the wave is passive/decorative, so it simply doesn't
+    // run at all (amplitude is separately forced to 0 in `build`, covering
+    // both "never started" and "was running, motion just got disabled").
+    final reduceMotion = MediaQuery.of(context).disableAnimations;
+    if (reduceMotion) {
+      if (waveController.isAnimating) waveController.stop();
+    } else {
+      if (!waveController.isAnimating) waveController.repeat();
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant AvatarFigure oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!widget.continuousWave) return;
+    if (widget.fillPercent == oldWidget.fillPercent) return;
+    // Defensive (code-review #7): `_fillController` is always non-null here
+    // in practice — every `continuousWave: true` call site keeps it `true`
+    // for the widget's whole lifetime, so it's created once in `initState`
+    // and never torn down before this — but guard rather than force-unwrap,
+    // in case that invariant ever changes.
+    final fillController = _fillController;
+    if (fillController == null) return;
+    _fillBegin = _currentFillValue();
+    _fillEnd = widget.fillPercent.clamp(0, 100).toDouble();
+    if (widget.shouldAnimate) {
+      fillController.forward(from: 0);
+    } else {
+      fillController.value = 1;
+    }
+  }
+
+  /// The fill-easing controller's current interpolated 0-100 value — used
+  /// as the new tween's `begin` whenever [AvatarFigure.fillPercent] changes
+  /// again mid-animation, so the "slosh" restarts from wherever the fill
+  /// visually is right now rather than jumping.
+  double _currentFillValue() {
+    final controller = _fillController;
+    if (controller == null) return _fillEnd;
+    final eased = Curves.easeOut.transform(controller.value);
+    return _fillBegin + (_fillEnd - _fillBegin) * eased;
+  }
+
+  @override
+  void dispose() {
+    _waveController?.dispose();
+    _fillController?.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
-    final target = fillPercent.clamp(0, 100);
-    if (!shouldAnimate) {
+    final target = widget.fillPercent.clamp(0, 100);
+
+    if (!widget.continuousWave) {
+      if (!widget.shouldAnimate) {
+        return CustomPaint(
+          size: const Size(_kUnitWidth, _kUnitHeight),
+          painter: _AvatarFigurePainter(
+            spec: widget.spec,
+            fillHeightPercent: target.toDouble(),
+            fillColorPercent: target,
+          ),
+        );
+      }
+      return TweenAnimationBuilder<double>(
+        tween: Tween<double>(begin: 0, end: target.toDouble()),
+        duration: const Duration(milliseconds: 320),
+        curve: Curves.easeOut,
+        builder: (context, value, child) {
+          return CustomPaint(
+            size: const Size(_kUnitWidth, _kUnitHeight),
+            painter: _AvatarFigurePainter(
+              spec: widget.spec,
+              fillHeightPercent: value,
+              fillColorPercent: target,
+            ),
+          );
+        },
+      );
+    }
+
+    // Defensive (code-review #7): both controllers are always non-null here
+    // in practice (see `didUpdateWidget`'s matching comment) — captured
+    // into locals once, with a flat-fallback if that invariant ever broke,
+    // rather than force-unwrapping the fields repeatedly below.
+    final waveController = _waveController;
+    final fillController = _fillController;
+    if (waveController == null || fillController == null) {
       return CustomPaint(
         size: const Size(_kUnitWidth, _kUnitHeight),
         painter: _AvatarFigurePainter(
-          spec: spec,
+          spec: widget.spec,
           fillHeightPercent: target.toDouble(),
           fillColorPercent: target,
         ),
       );
     }
-    return TweenAnimationBuilder<double>(
-      tween: Tween<double>(begin: 0, end: target.toDouble()),
-      duration: const Duration(milliseconds: 320),
-      curve: Curves.easeOut,
-      builder: (context, value, child) {
+
+    final reduceMotion = MediaQuery.of(context).disableAnimations;
+    return AnimatedBuilder(
+      animation: Listenable.merge([waveController, fillController]),
+      builder: (context, child) {
+        final fillValue = _currentFillValue();
+        final amplitude = reduceMotion
+            ? 0.0
+            : _kBaseWaveAmplitude +
+                  (fillController.isAnimating ? _kBoostWaveAmplitude : 0.0);
+        final wavePhase = reduceMotion ? 0.0 : waveController.value * 2 * pi;
         return CustomPaint(
           size: const Size(_kUnitWidth, _kUnitHeight),
           painter: _AvatarFigurePainter(
-            spec: spec,
-            fillHeightPercent: value,
+            spec: widget.spec,
+            fillHeightPercent: fillValue,
             fillColorPercent: target,
+            continuousWave: true,
+            wavePhase: wavePhase,
+            waveAmplitude: amplitude,
           ),
         );
       },
@@ -73,11 +256,46 @@ class AvatarFigure extends StatelessWidget {
   }
 }
 
+/// Pure "sample the wavy fill top edge at one x, then clamp into the
+/// vessel's own vertical bounds" calculation (juice spec effect 1,
+/// code-review fix HIGH #1), extracted out of `_AvatarFigurePainter`'s
+/// private `_wavyFillPath` so this file's single most safety-critical bit of
+/// math — the fill silhouette must never fully disappear (near-death) or gap
+/// at the top (near-full), regardless of wave amplitude/phase — is
+/// unit-testable directly, without needing a full widget test. `shoulderY`/
+/// `baseY`/`unitWidth` are passed in rather than hardcoded so this stays a
+/// pure function of its inputs; production code always calls it with
+/// `_AvatarFigurePainter`'s own `_shoulderY`/`_baseY`/`_kUnitWidth`.
+@visibleForTesting
+double avatarWaveYClamped({
+  required double fillTop,
+  required double waveAmplitude,
+  required double wavePhase,
+  required double x,
+  required double unitWidth,
+  required double shoulderY,
+  required double baseY,
+}) {
+  final xOffset = (x / unitWidth) * 2 * pi;
+  final wave =
+      waveAmplitude * sin(wavePhase + xOffset) +
+      (waveAmplitude * _AvatarFigurePainter._kSecondaryWaveAmplitudeRatio) *
+          sin(
+            wavePhase * _AvatarFigurePainter._kSecondaryWaveFrequencyRatio +
+                xOffset * _AvatarFigurePainter._kSecondaryWaveSpatialRatio,
+          );
+  final y = fillTop + wave;
+  return y.clamp(shoulderY, baseY);
+}
+
 class _AvatarFigurePainter extends CustomPainter {
   _AvatarFigurePainter({
     required this.spec,
     required this.fillHeightPercent,
     required this.fillColorPercent,
+    this.continuousWave = false,
+    this.wavePhase = 0,
+    this.waveAmplitude = 0,
   });
 
   final AvatarSpec spec;
@@ -91,6 +309,22 @@ class _AvatarFigurePainter extends CustomPainter {
   /// color never sweeps through the low/mid bands while the height tween is
   /// still in flight (see `avatarFillColorForPercent`).
   final int fillColorPercent;
+
+  /// Juice spec effect 1 (Play-screen `LifeAvatar` only): when `true`, the
+  /// fill's top edge is a wavy `Path` (see [_paintBodyWavy]) instead of the
+  /// flat `Rect` every other caller still gets via [_paintBody] — keeping
+  /// that method byte-for-byte unchanged so Home/the avatar picker never
+  /// regress.
+  final bool continuousWave;
+
+  /// Current wave phase, in radians. Only meaningful when [continuousWave]
+  /// is `true`.
+  final double wavePhase;
+
+  /// Current wave amplitude, in logical px at the `_kUnitWidth` painter
+  /// scale (0 under Reduce Motion — see `_AvatarFigureState.build`). Only
+  /// meaningful when [continuousWave] is `true`.
+  final double waveAmplitude;
 
   static const double _shoulderY = 60;
   static const double _baseY = 100;
@@ -154,17 +388,20 @@ class _AvatarFigurePainter extends CustomPainter {
     // sign-off pass and the player-reviewer gut-check on the Play Loop
     // avatar-life-meter revision. Geometry-only floor, does not touch the
     // color rule (still driven purely by `fillColorPercent`'s real value).
-    final vesselHeight = _baseY - _shoulderY;
-    final effectiveFillHeightPercent = fillHeightPercent < _kMinVisibleFillPercent
-        ? _kMinVisibleFillPercent
-        : fillHeightPercent;
-    final fillTop = _baseY - vesselHeight * (effectiveFillHeightPercent / 100);
+    final fillTop = _fillTop();
     canvas.save();
     canvas.clipPath(path);
-    canvas.drawRect(
-      Rect.fromLTRB(0, fillTop, _kUnitWidth, _baseY + 1),
-      Paint()..color = avatarFillColorForPercent(fillColorPercent),
-    );
+    if (continuousWave) {
+      canvas.drawPath(
+        _wavyFillPath(fillTop),
+        Paint()..color = avatarFillColorForPercent(fillColorPercent),
+      );
+    } else {
+      canvas.drawRect(
+        Rect.fromLTRB(0, fillTop, _kUnitWidth, _baseY + 1),
+        Paint()..color = avatarFillColorForPercent(fillColorPercent),
+      );
+    }
     canvas.restore();
 
     // Outer silhouette stroke — same 2.5px weight as the head (§3.1 rule).
@@ -175,6 +412,58 @@ class _AvatarFigurePainter extends CustomPainter {
         ..strokeWidth = _strokeWidth
         ..color = AppColors.ink,
     );
+  }
+
+  double _fillTop() {
+    final vesselHeight = _baseY - _shoulderY;
+    final effectiveFillHeightPercent = fillHeightPercent < _kMinVisibleFillPercent
+        ? _kMinVisibleFillPercent
+        : fillHeightPercent;
+    return _baseY - vesselHeight * (effectiveFillHeightPercent / 100);
+  }
+
+  /// Juice spec effect 1: the fill's top edge as an organic, non-repeating-
+  /// looking wavy `Path` (two summed sines) rather than a flat line — built
+  /// across the fill rect's width via `quadraticBezierTo` segments, then
+  /// closed down to the vessel's base. Clipped to the same body silhouette
+  /// as [_paintBody]'s flat-rect case, so only the geometry differs.
+  static const int _kWaveSegments = 10;
+
+  /// Secondary sine's amplitude, as a fraction of [waveAmplitude] — the
+  /// smaller "ripple" summed on top of the primary wave for an organic,
+  /// non-repeating-looking surface (code-review fix: named, not inline).
+  static const double _kSecondaryWaveAmplitudeRatio = 0.4;
+
+  /// Secondary sine's phase-speed multiplier relative to [wavePhase].
+  static const double _kSecondaryWaveFrequencyRatio = 1.7;
+
+  /// Secondary sine's spatial-frequency multiplier relative to the primary
+  /// sine's per-x phase offset.
+  static const double _kSecondaryWaveSpatialRatio = 1.3;
+
+  Path _wavyFillPath(double fillTop) {
+    double waveY(double x) => avatarWaveYClamped(
+      fillTop: fillTop,
+      waveAmplitude: waveAmplitude,
+      wavePhase: wavePhase,
+      x: x,
+      unitWidth: _kUnitWidth,
+      shoulderY: _shoulderY,
+      baseY: _baseY,
+    );
+
+    final path = Path()..moveTo(0, waveY(0));
+    for (var i = 1; i <= _kWaveSegments; i++) {
+      final x = _kUnitWidth * i / _kWaveSegments;
+      final prevX = _kUnitWidth * (i - 1) / _kWaveSegments;
+      final midX = (prevX + x) / 2;
+      path.quadraticBezierTo(midX, waveY(midX), x, waveY(x));
+    }
+    path
+      ..lineTo(_kUnitWidth, _baseY + 1)
+      ..lineTo(0, _baseY + 1)
+      ..close();
+    return path;
   }
 
   void _paintNeck(Canvas canvas) {
@@ -428,6 +717,9 @@ class _AvatarFigurePainter extends CustomPainter {
   bool shouldRepaint(covariant _AvatarFigurePainter oldDelegate) {
     return oldDelegate.spec != spec ||
         oldDelegate.fillHeightPercent != fillHeightPercent ||
-        oldDelegate.fillColorPercent != fillColorPercent;
+        oldDelegate.fillColorPercent != fillColorPercent ||
+        oldDelegate.continuousWave != continuousWave ||
+        oldDelegate.wavePhase != wavePhase ||
+        oldDelegate.waveAmplitude != waveAmplitude;
   }
 }

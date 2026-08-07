@@ -41,9 +41,33 @@ void main() {
     );
   }
 
+  // Bounded pumps, not `pumpAndSettle()`: `LifeAvatar` (juice spec effect 1)
+  // now runs a deliberately always-`repeat()`-ing `AnimationController` for
+  // its continuous "sloshing" wave while `PlayLoopScreen` is mounted, which
+  // `pumpAndSettle()` can never settle past (see
+  // `test/integration/support/app_harness.dart`'s `_pumpBriefly` for the
+  // same fix applied to the shared integration-test harness).
+  //
+  // Steps through [extra] in ~16ms increments rather than one bulk pump
+  // (code-review fix #6) — a bulk pump only evaluates animation curves at
+  // one point in time, too coarse for anything multi-stage.
+  Future<void> pumpBriefly(
+    WidgetTester tester, [
+    Duration extra = const Duration(milliseconds: 500),
+  ]) async {
+    await tester.pump();
+    const step = Duration(milliseconds: 16);
+    var remaining = extra;
+    while (remaining > Duration.zero) {
+      final thisStep = remaining < step ? remaining : step;
+      await tester.pump(thisStep);
+      remaining -= thisStep;
+    }
+  }
+
   Future<void> pumpPastCountdown(WidgetTester tester) async {
     await tester.pump(const Duration(milliseconds: 2200));
-    await tester.pumpAndSettle();
+    await pumpBriefly(tester);
   }
 
   RunController controllerOf(WidgetTester tester) => ProviderScope.containerOf(
@@ -215,7 +239,10 @@ void main() {
         );
 
         await tester.pump(const Duration(milliseconds: 700));
-        await tester.pumpAndSettle();
+        // Not `pumpAndSettle()` — this stop doesn't end the run, so
+        // `PlayLoopScreen`/`LifeAvatar` (and its continuous wave) stay
+        // mounted; see `pumpPastCountdown`'s comment above.
+        await pumpBriefly(tester);
       },
     );
   });

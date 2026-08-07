@@ -34,11 +34,34 @@ void main() {
     );
   }
 
+  /// Bounded pumps, not `pumpAndSettle()`: `LifeAvatar` (juice spec effect
+  /// 1) now runs a deliberately always-`repeat()`-ing `AnimationController`
+  /// for its continuous "sloshing" wave the whole time `PlayLoopScreen` is
+  /// mounted — `pumpAndSettle()` can never settle past that (same fix as
+  /// `test/integration/support/app_harness.dart`'s `_pumpBriefly`).
+  ///
+  /// Steps through [extra] in ~16ms increments rather than one bulk pump
+  /// (code-review fix #6) — a bulk pump only evaluates animation curves at
+  /// one point in time, too coarse for anything multi-stage.
+  Future<void> pumpBriefly(
+    WidgetTester tester, [
+    Duration extra = const Duration(milliseconds: 500),
+  ]) async {
+    await tester.pump();
+    const step = Duration(milliseconds: 16);
+    var remaining = extra;
+    while (remaining > Duration.zero) {
+      final thisStep = remaining < step ? remaining : step;
+      await tester.pump(thisStep);
+      remaining -= thisStep;
+    }
+  }
+
   /// Pumps past the full 3-2-1 countdown (`RunConfig.defaults`:
   /// countdownSteps=3 * countdownStepMs=700 = 2100ms) into `armed`.
   Future<void> pumpPastCountdown(WidgetTester tester) async {
     await tester.pump(const Duration(milliseconds: 2200));
-    await tester.pumpAndSettle();
+    await pumpBriefly(tester);
   }
 
   RunState readState(WidgetTester tester) {
@@ -211,10 +234,17 @@ void main() {
     }
 
     /// Flushes the screen's post-stop flash-dwell `Future.delayed` timer so
-    /// no pending timer survives the test's teardown.
+    /// no pending timer survives the test's teardown. Bounded pump, not
+    /// `pumpAndSettle()` — see `pumpPastCountdown`'s doc comment above. The
+    /// generous 1600ms second window (not just a few hundred ms) also
+    /// covers the terminal-outcome case, where this dwell hands off into a
+    /// real `OutcomeCardScreen` mount (`kMinStoryLoadDuration` = 1000ms,
+    /// plus this harness's un-mocked `outcomeStoryProvider`/HTTP machinery)
+    /// — matches `test/integration/support/app_harness.dart`'s own
+    /// `flushDwell` fix.
     Future<void> flushDwell(WidgetTester tester) async {
       await tester.pump(const Duration(milliseconds: 700));
-      await tester.pumpAndSettle();
+      await pumpBriefly(tester, const Duration(milliseconds: 1600));
     }
 
     testWidgets('a Miss shows "Stopped · off by X.XX", not just "Stopped"', (
@@ -319,7 +349,10 @@ void main() {
       controller.arm();
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 700));
-      await tester.pumpAndSettle();
+      // Bounded pump, not `pumpAndSettle()` — see `pumpPastCountdown`'s doc
+      // comment above (`LifeAvatar`'s continuous wave keeps this screen
+      // perpetually "unsettled").
+      await pumpBriefly(tester);
     }
 
     testWidgets(
@@ -363,8 +396,10 @@ void main() {
 
         expect(tester.takeException(), isNull, reason: 'no exception through a chain of interrupted fades');
 
-        // Let every in-flight AnimatedSwitcher animation fully settle.
-        await tester.pumpAndSettle();
+        // Let every in-flight AnimatedSwitcher animation fully settle — a
+        // bounded pump, not `pumpAndSettle()` (see `pumpPastCountdown`'s doc
+        // comment above), comfortably past the 200ms fade.
+        await pumpBriefly(tester, const Duration(milliseconds: 300));
 
         expect(tester.takeException(), isNull);
         // Final phase is `armed`: exactly the armed teaching line shows, with
@@ -377,7 +412,7 @@ void main() {
         // leaks past this test (`advanceAfterDwell` itself no-ops here since
         // `_pending` was never set — this bypassed `_resolveStop` entirely).
         await tester.pump(const Duration(milliseconds: 700));
-        await tester.pumpAndSettle();
+        await pumpBriefly(tester);
       },
     );
 

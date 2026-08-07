@@ -15,8 +15,15 @@ import '../../../avatar/state/avatar_providers.dart';
 /// back safely for a never-picked player (`-1`), so no empty/error state is
 /// needed here.
 ///
-/// Deliberately no `RepaintBoundary` — product-architect rejected one for
-/// this rarely-changing, non-60fps element on memory-cost grounds.
+/// Wrapped in its own `RepaintBoundary` (code-review fix — this used to be
+/// "deliberately no `RepaintBoundary`, product-architect rejected one for
+/// this rarely-changing, non-60fps element on memory-cost grounds", which
+/// stopped being true the moment juice spec effect 1 gave this the
+/// `continuousWave: true` "sloshing liquid" wave: it now repaints 60x/sec
+/// for `PlayLoopScreen`'s entire mounted lifetime, on the one screen where
+/// per-frame cost directly affects timing-critical gameplay. The boundary
+/// isolates that 60fps repaint to just this layer instead of dirtying the
+/// whole surrounding HUD row on every tick.
 class LifeAvatar extends ConsumerWidget {
   const LifeAvatar({super.key, required this.lifePercent});
 
@@ -37,7 +44,14 @@ class LifeAvatar extends ConsumerWidget {
       height: 72,
       child: FittedBox(
         fit: BoxFit.contain,
-        child: AvatarFigure(spec: spec, fillPercent: lifePercent, shouldAnimate: true),
+        child: RepaintBoundary(
+          child: AvatarFigure(
+            spec: spec,
+            fillPercent: lifePercent,
+            shouldAnimate: true,
+            continuousWave: true,
+          ),
+        ),
       ),
     );
   }
