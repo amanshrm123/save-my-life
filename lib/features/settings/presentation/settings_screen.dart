@@ -46,21 +46,39 @@ class SettingsScreen extends ConsumerStatefulWidget {
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   bool _resetting = false;
 
+  /// Bug fix: the toggle used to give zero visual feedback between the tap
+  /// and the OS permission dialog resolving (which — a real player, not
+  /// just a slow dev machine, can genuinely wait on — is not instant: it's
+  /// gated on a human actually reading and responding to a system alert).
+  /// A player who taps and sees literally nothing happen for that whole
+  /// window has no way to tell "still working" from "silently broken", and
+  /// will reasonably conclude the latter. This flag drives a busy indicator
+  /// on the row for exactly that window, and also guards against a second
+  /// tap re-entering `enable()`/`disable()` while the first is still in
+  /// flight.
+  bool _reminderBusy = false;
+
   Future<void> _onReminderToggle(bool value) async {
-    if (value) {
-      final granted = await ref.read(reminderControllerProvider.notifier).enable();
-      if (!mounted) return;
-      if (!granted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              "Couldn't turn on reminders — check notification permission in system settings.",
+    if (_reminderBusy) return;
+    setState(() => _reminderBusy = true);
+    try {
+      if (value) {
+        final granted = await ref.read(reminderControllerProvider.notifier).enable();
+        if (!mounted) return;
+        if (!granted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                "Couldn't turn on reminders — check notification permission in system settings.",
+              ),
             ),
-          ),
-        );
+          );
+        }
+      } else {
+        await ref.read(reminderControllerProvider.notifier).disable();
       }
-    } else {
-      await ref.read(reminderControllerProvider.notifier).disable();
+    } finally {
+      if (mounted) setState(() => _reminderBusy = false);
     }
   }
 
@@ -171,7 +189,25 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   _SettingsRow(
                     emoji: '🔔',
                     label: 'Daily reminder',
-                    trailing: SettingsToggle(value: settings.reminder, onChanged: _onReminderToggle),
+                    // Sized to match `SettingsToggle`'s own 38x22 footprint
+                    // so swapping to the busy indicator doesn't shift the
+                    // row's layout.
+                    trailing: _reminderBusy
+                        ? const SizedBox(
+                            width: 38,
+                            height: 22,
+                            child: Center(
+                              child: SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: AppColors.ink,
+                                ),
+                              ),
+                            ),
+                          )
+                        : SettingsToggle(value: settings.reminder, onChanged: _onReminderToggle),
                   ),
                   const Padding(
                     padding: EdgeInsets.symmetric(vertical: 10),

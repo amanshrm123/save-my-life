@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -12,6 +14,7 @@ import 'package:timing_tap/features/notifications/state/reminder_providers.dart'
 import 'package:timing_tap/features/onboarding/state/onboarding_providers.dart';
 import 'package:timing_tap/features/progression/state/stats_providers.dart';
 import 'package:timing_tap/features/settings/presentation/settings_screen.dart';
+import 'package:timing_tap/features/settings/presentation/widgets/settings_toggle.dart';
 import 'package:timing_tap/features/settings/state/settings_providers.dart';
 
 /// Settings' reset-progress teardown (architecture v3 §7/§11 risk 6): every
@@ -233,6 +236,59 @@ void main() {
       expect(find.text('Verify Sentry setup'), findsNothing);
     },
   );
+
+  // REGRESSION (found via live iOS E2E testing): the Daily reminder toggle
+  // used to give zero visual feedback while `enable()`/`disable()` was in
+  // flight -- on a real device this is gated on a human actually responding
+  // to the OS permission dialog, not instant, so a player who tapped and
+  // saw nothing happen had no way to tell "still working" from "silently
+  // broken". These assert the busy indicator now covers exactly that gap.
+  testWidgets('the Daily reminder row shows a busy indicator (not the '
+      'toggle) while enable() is pending, and reverts once it resolves',
+      (tester) async {
+    final fakeReminder = _DelayedReminderService();
+    SharedPreferences.setMockInitialValues({kKeyReminderEnabled: false});
+    final service = await PreferencesService.create();
+    final container = ProviderContainer(
+      overrides: [
+        preferencesServiceProvider.overrideWithValue(service),
+        reminderServiceProvider.overrideWithValue(fakeReminder),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: SettingsScreen()),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+
+    // Locates the Daily reminder row's own SettingsToggle by walking down
+    // from its label text, rather than guessing at pixel coordinates or at
+    // list position among the other toggles.
+    final reminderRow = find.ancestor(
+      of: find.text('Daily reminder'),
+      matching: find.byType(Row),
+    ).first;
+    await tester.tap(find.descendant(of: reminderRow, matching: find.byType(SettingsToggle)));
+    await tester.pump();
+
+    expect(
+      find.byType(CircularProgressIndicator),
+      findsOneWidget,
+      reason: 'enable() is still pending on fakeReminder.permissionCompleter',
+    );
+
+    fakeReminder.permissionCompleter.complete(true);
+    await tester.pumpAndSettle();
+
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+    expect(container.read(settingsProvider).reminder, isTrue);
+  });
 }
 
 /// A `ReminderService` stub that records whether `cancel()` was invoked,
@@ -252,6 +308,26 @@ class _RecordingReminderService implements ReminderService {
   Future<void> cancel() async {
     onCancel();
   }
+
+  @override
+  Future<bool> hasPermission() async => true;
+}
+
+/// A `ReminderService` stub whose `requestPermission()` doesn't resolve
+/// until the test explicitly completes [permissionCompleter] -- simulates
+/// the real, human-gated wait for an OS permission dialog, so a test can
+/// pump mid-flight and assert on the pending-state UI.
+class _DelayedReminderService implements ReminderService {
+  final Completer<bool> permissionCompleter = Completer<bool>();
+
+  @override
+  Future<bool> requestPermission() => permissionCompleter.future;
+
+  @override
+  Future<bool> scheduleDaily(int hour) async => true;
+
+  @override
+  Future<void> cancel() async {}
 
   @override
   Future<bool> hasPermission() async => true;

@@ -27,13 +27,29 @@ class IosReminderService implements ReminderService {
   /// Lazily initializes the plugin exactly once before its first real use
   /// (permission request or schedule) — the plugin requires `initialize()`
   /// with Darwin settings before those calls behave correctly.
+  ///
+  /// The three `request*Permission` flags are explicitly `false` here — bug
+  /// fix: `DarwinInitializationSettings()`'s own defaults are all `true`,
+  /// which makes `initialize()` itself implicitly trigger the real OS
+  /// permission prompt as a side effect, *before* [requestPermission]'s own
+  /// explicit (and, until this fix, redundant) call ever runs. That made the
+  /// actual moment the user sees the system dialog an implementation detail
+  /// of a differently-named method instead of the one the toggle calls,
+  /// which is exactly what made a live end-to-end test of this flow so hard
+  /// to reason about. With these forced `false`, `initialize()` genuinely
+  /// never prompts, and [requestPermission]'s own `requestPermissions(...)`
+  /// call is the single, intentional place the dialog can appear.
   Future<void> _ensureInitialized() async {
     if (_initialized) return;
     _initialized = true;
     try {
       await _plugin.initialize(
         settings: const InitializationSettings(
-          iOS: DarwinInitializationSettings(),
+          iOS: DarwinInitializationSettings(
+            requestAlertPermission: false,
+            requestSoundPermission: false,
+            requestBadgePermission: false,
+          ),
         ),
       );
     } catch (e, st) {
