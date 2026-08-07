@@ -57,9 +57,9 @@ void main() {
     prefs = await PreferencesService.create();
   });
 
-  RunSummary summary() {
+  RunSummary summaryFor(RunOutcome outcome) {
     return RunSummary(
-      outcome: RunOutcome.death,
+      outcome: outcome,
       runNumber: 1,
       lifetimeDeaths: 1,
       peakLifePercent: 90,
@@ -68,6 +68,8 @@ void main() {
       playerName: 'Aman',
     );
   }
+
+  RunSummary summary() => summaryFor(RunOutcome.death);
 
   Widget harness(
     RunSummary s, {
@@ -82,6 +84,58 @@ void main() {
       retry: retry,
       child: MaterialApp(home: OutcomeCardScreen(summary: s)),
     );
+  }
+
+  /// Same as [harness], but with `MediaQuery.disableAnimations` forced
+  /// `true` (OS Reduce Motion) — placed as a direct ancestor of
+  /// `OutcomeCardScreen` (inside `MaterialApp`, not outside it) so it's
+  /// guaranteed to be the nearest `MediaQuery` the screen's `context` sees,
+  /// regardless of whatever ambient `MediaQuery` `MaterialApp`/the test
+  /// binding itself provides above it.
+  Widget reduceMotionHarness(
+    RunSummary s, {
+    List<Override> overrides = const [],
+  }) {
+    return ProviderScope(
+      overrides: [
+        preferencesServiceProvider.overrideWithValue(prefs),
+        ...overrides,
+      ],
+      child: MaterialApp(
+        home: MediaQuery(
+          data: const MediaQueryData(disableAnimations: true),
+          child: OutcomeCardScreen(summary: s),
+        ),
+      ),
+    );
+  }
+
+  /// Walks up from the (unique) `OutcomeCard` element and returns the
+  /// nearest `RepaintBoundary` ancestor — i.e. the screen's own shareable
+  /// capture boundary (`_cardKey`'s `RepaintBoundary`), not any of the
+  /// ambient ones `MaterialApp`'s route-transition machinery also builds
+  /// further up the tree (see this file's header comment). Mirrors the
+  /// existing nesting-order tests' own ancestor-walk technique, just scoped
+  /// down to a reusable `Finder` for tests that need to query the
+  /// boundary's descendants specifically (e.g. "is X inside the shareable
+  /// capture or not").
+  Finder cardRepaintBoundaryFinder(WidgetTester tester) {
+    final cardElement = tester.element(find.byType(OutcomeCard));
+    Element? boundaryElement;
+    cardElement.visitAncestorElements((ancestor) {
+      if (ancestor.widget is RepaintBoundary) {
+        boundaryElement = ancestor;
+        return false;
+      }
+      return true;
+    });
+    expect(
+      boundaryElement,
+      isNotNull,
+      reason: 'no RepaintBoundary ancestor found for OutcomeCard at all',
+    );
+    final boundaryWidget = boundaryElement!.widget;
+    return find.byWidgetPredicate((widget) => identical(widget, boundaryWidget));
   }
 
   StickerButton findShareButton(WidgetTester tester) {
@@ -212,91 +266,111 @@ void main() {
         findsOneWidget,
         reason: 'the N/A card renders on AsyncError',
       );
+
+      // Juice spec "actions gate": settling into AsyncError also kicks off
+      // the entrance reveal, which locks Share/Again for `_kActionsLockDuration`
+      // (300ms) even though the card content itself is already settled — so
+      // this test must clear that window too, on top of `_isSettled()`,
+      // before Share is genuinely expected to be enabled.
+      await tester.pump(const Duration(milliseconds: 350));
+
       expect(
         findShareButton(tester).enabled,
         isTrue,
         reason:
-            'AsyncError must be treated as "settled" for Share-gating, exactly like AsyncData',
+            'AsyncError must be treated as "settled" for Share-gating, exactly like AsyncData, '
+            'once the ~300ms actions-lock window has also cleared',
       );
     },
   );
 
+  for (final outcome in RunOutcome.values) {
+    testWidgets(
+      'the RepaintBoundary is nested INSIDE the ${outcome.name} entrance '
+      "animation's transform (a descendant, not an ancestor) — the "
+      'load-bearing part of the fix: an ancestor Opacity/Transform never '
+      'affects what a descendant RepaintBoundary.toImage() captures, so '
+      'Share always rasterizes the fully-settled card regardless of how far '
+      'the entrance animation has progressed. Generalized off '
+      '`find.byType(ScaleTransition)` (removed this pass — every outcome now '
+      'uses a raw `Transform`, not `ScaleTransition`, for its shake/flip/pop) '
+      'to `find.byType(Transform)` instead, checked per-outcome.',
+      (tester) async {
+        final s = summaryFor(outcome);
+        await tester.pumpWidget(harness(s));
+        await tester.pump(const Duration(seconds: 2));
+        // Resolve, then pump only partway through the entrance animation —
+        // deliberately NOT settled, to prove the structural relationship
+        // holds even mid-animation (every outcome's entrance duration is
+        // >=500ms, so 130ms is comfortably still in-flight for all three).
+        await tester.pump(const Duration(milliseconds: 50));
+        await tester.pump(const Duration(milliseconds: 80));
+
+        expect(find.byType(OutcomeCard), findsOneWidget);
+
+        // MaterialApp's own route-transition machinery also builds ambient
+        // FadeTransition/Transform/RepaintBoundary widgets elsewhere in the
+        // tree (confirmed empirically), so raw type-based counts across the
+        // whole tree aren't reliable here. Instead, walk up from the
+        // (unique) OutcomeCard element and check the RELATIVE nesting order
+        // of the nearest RepaintBoundary/Transform/FadeTransition
+        // ancestors — our own entrance structure is always the *nearest*
+        // one to OutcomeCard, regardless of what else exists further up the
+        // tree.
+        final cardElement = tester.element(find.byType(OutcomeCard));
+        final ancestorTypes = <Type>[];
+        cardElement.visitAncestorElements((ancestor) {
+          ancestorTypes.add(ancestor.widget.runtimeType);
+          return ancestorTypes.length < 40;
+        });
+
+        final repaintIndex = ancestorTypes.indexOf(RepaintBoundary);
+        final transformIndex = ancestorTypes.indexOf(Transform);
+        final fadeIndex = ancestorTypes.indexOf(FadeTransition);
+
+        expect(
+          repaintIndex,
+          greaterThanOrEqualTo(0),
+          reason: 'no RepaintBoundary ancestor found at all',
+        );
+        expect(
+          transformIndex,
+          greaterThanOrEqualTo(0),
+          reason:
+              'no Transform ancestor found at all — every outcome entrance '
+              '(shake/flip/pop) is built from a raw Transform, not ScaleTransition',
+        );
+        expect(
+          fadeIndex,
+          greaterThanOrEqualTo(0),
+          reason: 'no FadeTransition ancestor found at all',
+        );
+
+        expect(
+          repaintIndex,
+          lessThan(transformIndex),
+          reason:
+              'RepaintBoundary must be nearer to OutcomeCard than Transform (i.e. a '
+              'descendant of it), not the reverse',
+        );
+        expect(
+          transformIndex,
+          lessThan(fadeIndex),
+          reason:
+              'Transform must be nearer to OutcomeCard than FadeTransition, matching the '
+              'FadeTransition > AnimatedBuilder > Transform > RepaintBoundary > ...content '
+              'nesting order _EntranceCard builds',
+        );
+      },
+    );
+  }
+
   testWidgets(
-    'the RepaintBoundary is nested INSIDE the FadeTransition/ScaleTransition '
-    'entrance animation (a descendant, not an ancestor) — the load-bearing '
-    'part of the fix: an ancestor Opacity/Transform never affects what a '
-    'descendant RepaintBoundary.toImage() captures, so Share always '
-    'rasterizes the fully-settled card regardless of how far the entrance '
-    'animation has progressed',
-    (tester) async {
-      final s = summary();
-      await tester.pumpWidget(harness(s));
-      await tester.pump(const Duration(seconds: 2));
-      // Resolve, then pump only partway through the 260ms entrance
-      // animation — deliberately NOT settled, to prove the structural
-      // relationship holds even mid-animation.
-      await tester.pump(const Duration(milliseconds: 50));
-      await tester.pump(const Duration(milliseconds: 80));
-
-      expect(find.byType(OutcomeCard), findsOneWidget);
-
-      // MaterialApp's own route-transition machinery also builds ambient
-      // FadeTransition/ScaleTransition/RepaintBoundary widgets elsewhere in
-      // the tree (confirmed empirically), so raw type-based counts across
-      // the whole tree aren't reliable here. Instead, walk up from the
-      // (unique) OutcomeCard element and check the RELATIVE nesting order
-      // of the nearest RepaintBoundary/ScaleTransition/FadeTransition
-      // ancestors — our own entrance structure is always the *nearest* one
-      // to OutcomeCard, regardless of what else exists further up the tree.
-      final cardElement = tester.element(find.byType(OutcomeCard));
-      final ancestorTypes = <Type>[];
-      cardElement.visitAncestorElements((ancestor) {
-        ancestorTypes.add(ancestor.widget.runtimeType);
-        return ancestorTypes.length < 40;
-      });
-
-      final repaintIndex = ancestorTypes.indexOf(RepaintBoundary);
-      final scaleIndex = ancestorTypes.indexOf(ScaleTransition);
-      final fadeIndex = ancestorTypes.indexOf(FadeTransition);
-
-      expect(
-        repaintIndex,
-        greaterThanOrEqualTo(0),
-        reason: 'no RepaintBoundary ancestor found at all',
-      );
-      expect(
-        scaleIndex,
-        greaterThanOrEqualTo(0),
-        reason: 'no ScaleTransition ancestor found at all',
-      );
-      expect(
-        fadeIndex,
-        greaterThanOrEqualTo(0),
-        reason: 'no FadeTransition ancestor found at all',
-      );
-
-      expect(
-        repaintIndex,
-        lessThan(scaleIndex),
-        reason:
-            'RepaintBoundary must be nearer to OutcomeCard than ScaleTransition (i.e. a '
-            'descendant of it), not the reverse',
-      );
-      expect(
-        scaleIndex,
-        lessThan(fadeIndex),
-        reason:
-            'ScaleTransition must be nearer to OutcomeCard than FadeTransition, matching the '
-            'exact FadeTransition > ScaleTransition > RepaintBoundary > ...content nesting order '
-            '_EntranceCard builds',
-      );
-    },
-  );
-
-  testWidgets(
-    'the entrance ScaleTransition is never present while the card is still '
-    'loading (OutcomeCardLoading has no ScaleTransition ancestor) — the '
-    'entrance animation only wraps the RESOLVED card, never the loader',
+    'the entrance Transform is never present while the card is still '
+    'loading (OutcomeCardLoading has no Transform ancestor) — the entrance '
+    'animation only wraps the RESOLVED card, never the loader. Generalized '
+    'off `ScaleTransition` (no longer used by any outcome entrance) to '
+    '`Transform`.',
     (tester) async {
       final s = summary();
       await tester.pumpWidget(
@@ -315,7 +389,7 @@ void main() {
       expect(
         find.ancestor(
           of: find.byType(OutcomeCardLoading),
-          matching: find.byType(ScaleTransition),
+          matching: find.byType(Transform),
         ),
         findsNothing,
       );
@@ -362,6 +436,175 @@ void main() {
 
       // The arrow glyph itself is present exactly once (on Share only).
       expect(find.text('→'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'REGRESSION (code review): Eternal — the shine+sparks fx overlay '
+    "(_EternalFxOverlay's sparks CustomPaint) is NEVER a descendant of the "
+    "card's own RepaintBoundary — the single most load-bearing invariant in "
+    'this file, since anything inside that boundary gets shared as a PNG',
+    (tester) async {
+      final s = summaryFor(RunOutcome.eternal);
+      await tester.pumpWidget(harness(s));
+      await tester.pump(const Duration(seconds: 2));
+      // Well inside both the 600ms pop entrance and the 1200ms fx timeline
+      // (sparks can start up to 300ms in), so the overlay is guaranteed to
+      // actually be mounted and painting by this point.
+      await tester.pump(const Duration(milliseconds: 400));
+
+      expect(find.byType(OutcomeCard), findsOneWidget);
+
+      // Matched by painter type specifically (rather than a bare
+      // `find.byType(CustomPaint)`, which could pick up unrelated ambient
+      // `CustomPaint`s elsewhere in the tree) so this test unambiguously
+      // targets the sparks fx overlay itself.
+      final sparksFinder = find.byWidgetPredicate(
+        (widget) =>
+            widget is CustomPaint &&
+            widget.painter.runtimeType.toString() == '_SparksPainter',
+      );
+      expect(
+        sparksFinder,
+        findsOneWidget,
+        reason:
+            'the sparks fx overlay must actually be mounted for this test to be '
+            'meaningful — if this fails, the overlay itself regressed, not the '
+            'non-descendancy invariant below',
+      );
+
+      final boundaryFinder = cardRepaintBoundaryFinder(tester);
+      expect(
+        find.descendant(of: boundaryFinder, matching: sparksFinder),
+        findsNothing,
+        reason:
+            'the sparks CustomPaint must be a sibling overlay positioned over the '
+            "card, never inside the shareable RepaintBoundary — otherwise it'd leak "
+            "into Share's toImage() capture",
+      );
+    },
+  );
+
+  testWidgets(
+    'REGRESSION: Reduce Motion (MediaQuery.disableAnimations) collapses the '
+    'Eternal entrance to a single plain FadeTransition — no Transform '
+    '(shake/flip/pop) and no shine/sparks fx overlay at all, not merely a '
+    'skipped animation',
+    (tester) async {
+      final s = summaryFor(RunOutcome.eternal);
+      await tester.pumpWidget(reduceMotionHarness(s));
+      await tester.pump(const Duration(seconds: 2));
+      await tester.pump(const Duration(milliseconds: 130));
+
+      expect(find.byType(OutcomeCard), findsOneWidget);
+
+      final cardElement = tester.element(find.byType(OutcomeCard));
+      final ancestorTypes = <Type>[];
+      cardElement.visitAncestorElements((ancestor) {
+        ancestorTypes.add(ancestor.widget.runtimeType);
+        return ancestorTypes.length < 40;
+      });
+
+      expect(
+        ancestorTypes.contains(FadeTransition),
+        isTrue,
+        reason: 'Reduce Motion still gets a plain fade-in',
+      );
+      expect(
+        ancestorTypes.contains(Transform),
+        isFalse,
+        reason: 'no pop/shake/flip Transform under Reduce Motion',
+      );
+
+      final sparksFinder = find.byWidgetPredicate(
+        (widget) =>
+            widget is CustomPaint &&
+            widget.painter.runtimeType.toString() == '_SparksPainter',
+      );
+      expect(
+        sparksFinder,
+        findsNothing,
+        reason:
+            "the eternal fx overlay (and its AnimationController) must not build "
+            'at all under Reduce Motion, not just render invisibly',
+      );
+    },
+  );
+
+  testWidgets(
+    'REGRESSION (juice spec actions gate): both Share and Again are '
+    'disabled immediately once the card settles, and both re-enable '
+    '~300ms later',
+    (tester) async {
+      final s = summary();
+      await tester.pumpWidget(
+        harness(
+          s,
+          overrides: [
+            outcomeStoryProvider.overrideWith(
+              (ref, arg) async => throw Exception('forced error for test'),
+            ),
+          ],
+          // Settles on the very next couple of pumps (no 1200ms floor to
+          // wait out), so the ~300ms actions-lock window can be measured
+          // precisely from a known t=0.
+          retry: (retryCount, error) => null,
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.byType(OutcomeCard), findsOneWidget, reason: 'settled into the N/A card');
+
+      StickerButton again() =>
+          tester.widget<StickerButton>(find.widgetWithText(StickerButton, 'Again'));
+
+      expect(
+        findShareButton(tester).enabled,
+        isFalse,
+        reason: 'actions gate locks Share immediately on settle',
+      );
+      expect(
+        again().enabled,
+        isFalse,
+        reason: 'actions gate locks Again immediately on settle too',
+      );
+
+      // Still short of the 300ms lock window.
+      await tester.pump(const Duration(milliseconds: 200));
+      expect(findShareButton(tester).enabled, isFalse);
+      expect(again().enabled, isFalse);
+
+      // Past the 300ms lock window.
+      await tester.pump(const Duration(milliseconds: 150));
+      expect(findShareButton(tester).enabled, isTrue);
+      expect(again().enabled, isTrue);
+    },
+  );
+
+  testWidgets(
+    'DISPOSAL: unmounting the screen ~130ms into an Eternal reveal (mid '
+    'actions-lock timer, mid haptic timers, mid fx timeline) cancels every '
+    'pending Timer cleanly — flutter_test itself fails this test at '
+    'teardown with a "Timer is still pending" error if disposal leaks one, '
+    'so simply completing without that error IS the assertion',
+    (tester) async {
+      final s = summaryFor(RunOutcome.eternal);
+      await tester.pumpWidget(harness(s));
+      await tester.pump(const Duration(seconds: 2));
+      // Inside the 300ms actions-lock window, inside the eternal haptic
+      // timers' 120ms/240ms intervals, and inside several sparks'
+      // startDelay windows — maximally many pending Timers in flight at
+      // once.
+      await tester.pump(const Duration(milliseconds: 130));
+
+      expect(find.byType(OutcomeCard), findsOneWidget);
+
+      // Unmount the whole screen (and thus its State, mid-reveal) while all
+      // of the above timers are still pending.
+      await tester.pumpWidget(const SizedBox.shrink());
+
+      expect(tester.takeException(), isNull);
     },
   );
 }

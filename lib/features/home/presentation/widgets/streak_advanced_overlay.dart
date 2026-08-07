@@ -29,8 +29,10 @@ class _StreakAdvancedViewState extends State<StreakAdvancedView>
   void initState() {
     super.initState();
     // A definite celebratory beat (design v3 §8.2): the emoji does a quick
-    // bounce/scale-in on entry, and the newly-filled week-bar segment
-    // animates in via `StreakWeekBar`'s own `AnimatedContainer`.
+    // bounce/scale-in on entry, and the newly-filled week-bar segment(s)
+    // animate in via `StreakWeekBar`'s own staggered punch-fill controller
+    // (juice spec effect 5, `animateEntrance: true` below) — no longer the
+    // plain `AnimatedContainer` fade this comment used to describe.
     _controller = AnimationController(vsync: this, duration: const Duration(milliseconds: 420));
     _controller.forward();
   }
@@ -71,7 +73,12 @@ class _StreakAdvancedViewState extends State<StreakAdvancedView>
               style: AppTypography.body,
             ),
             const SizedBox(height: 16),
-            StreakWeekBar(streakCount: widget.dayCount, segmentHeight: 8, borderWidth: 2),
+            StreakWeekBar(
+              streakCount: widget.dayCount,
+              segmentHeight: 8,
+              borderWidth: 2,
+              animateEntrance: true,
+            ),
             const SizedBox(height: 22),
             StickerButton(
               label: 'Play day ${widget.dayCount}',
