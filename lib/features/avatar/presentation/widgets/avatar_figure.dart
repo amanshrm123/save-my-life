@@ -10,7 +10,7 @@ import '../../domain/avatar_spec.dart';
 /// painter's logical coordinate space; `_AvatarFigurePainter` scales this up
 /// to whatever actual `Size` it's given.
 const double _kUnitWidth = 84;
-const double _kUnitHeight = 104;
+const double _kUnitHeight = 116;
 
 /// The procedural avatar figure (design `home-avatars-v1.md` §3): a plain
 /// `CustomPainter` — zero image assets, zero `flutter_svg`, zero
@@ -350,15 +350,142 @@ class _AvatarFigurePainter extends CustomPainter {
     canvas.save();
     canvas.scale(size.width / _kUnitWidth, size.height / _kUnitHeight);
 
+    _paintArms(canvas);
     _paintBody(canvas);
+    _paintLegs(canvas);
     _paintNeck(canvas);
-    _paintShirtCollar(canvas);
+    _paintShirtYoke(canvas);
     _paintHead(canvas);
+    _paintEyebrows(canvas);
     _paintEyes(canvas);
     _paintMouth(canvas);
     _paintHair(canvas);
 
     canvas.restore();
+  }
+
+  /// Structural pass (this figure previously had no limbs at all — just a
+  /// floating head on the life-meter vessel): a pair of simple flat "sleeve"
+  /// arms ending in rounded mitt hands, matching this app's existing
+  /// sticker-illustration language (2.5px ink outline, flat fill, no
+  /// gradients) and the chibi/mascot convention of simplified rounded-mitt
+  /// hands rather than fingers. Each arm's shoulder attachment point is
+  /// deliberately *inside* the body silhouette (`_bodyPath`'s shoulder
+  /// width), so [_paintBody] — drawn right after this, per [paint]'s call
+  /// order — naturally covers the socket, leaving only the part of the arm
+  /// that has already swept clear of the vessel's own (wider-at-the-base)
+  /// taper visible. Purely additive: never touches `_bodyPath`/the fill
+  /// clip, so the life-meter mechanic is byte-for-byte unchanged.
+  static const double _armStrokeWidth = 9;
+  static const double _handRadius = 5.5;
+
+  void _paintArms(Canvas canvas) {
+    _paintArm(canvas, side: -1);
+    _paintArm(canvas, side: 1);
+  }
+
+  /// One arm. `side` is `-1` (left) or `1` (right) — every coordinate below
+  /// is expressed as an offset from the figure's horizontal center (42) so
+  /// the two arms stay exactly mirrored.
+  void _paintArm(Canvas canvas, {required double side}) {
+    final shoulder = Offset(42 + side * 9, 62);
+    final control = Offset(42 + side * 19, 74);
+    final cuff = Offset(42 + side * 22, 85);
+    final hand = Offset(42 + side * 26, 90);
+
+    final sleeve = Path()
+      ..moveTo(shoulder.dx, shoulder.dy)
+      ..quadraticBezierTo(control.dx, control.dy, cuff.dx, cuff.dy);
+
+    // Outline-then-fill via two same-path strokes (matching how the rest of
+    // this painter fakes an outlined flat shape without building a second
+    // outline polygon): a wider ink pass first, a narrower shirt-color pass
+    // on top, both round-capped/joined so the result reads as one rounded
+    // sleeve rather than a stroked line.
+    canvas.drawPath(
+      sleeve,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = _armStrokeWidth + _strokeWidth
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round
+        ..color = AppColors.ink,
+    );
+    canvas.drawPath(
+      sleeve,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = _armStrokeWidth
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round
+        ..color = spec.shirt,
+    );
+
+    canvas.drawCircle(hand, _handRadius, Paint()..color = spec.skin);
+    canvas.drawCircle(
+      hand,
+      _handRadius,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = _detailStrokeWidth
+        ..color = AppColors.ink,
+    );
+  }
+
+  /// Legs/feet (the figure previously ended at `_baseY`, floating with no
+  /// stance at all). Drawn straight down from the vessel's own base, in the
+  /// newly-added room below `_baseY` (`_kUnitHeight` grew from 104 to 116 to
+  /// make space) — entirely outside `_bodyPath`'s footprint, so like the
+  /// arms this never touches the fill clip. Painted *after* `_paintBody`
+  /// (unlike the arms, which paint before it) so the top of each leg reads
+  /// as attached under the vessel's own rounded base rather than hidden
+  /// behind it.
+  static const double _legStrokeWidth = 10;
+  static const double _footHalfWidth = 7.5;
+  static const double _footHeight = 8;
+
+  void _paintLegs(Canvas canvas) {
+    _paintLeg(canvas, side: -1);
+    _paintLeg(canvas, side: 1);
+  }
+
+  void _paintLeg(Canvas canvas, {required double side}) {
+    final hip = Offset(42 + side * 8, _baseY);
+    final ankle = Offset(42 + side * 8, _baseY + 13);
+    final leg = Path()
+      ..moveTo(hip.dx, hip.dy)
+      ..lineTo(ankle.dx, ankle.dy);
+
+    canvas.drawPath(
+      leg,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = _legStrokeWidth + _strokeWidth
+        ..strokeCap = StrokeCap.round
+        ..color = AppColors.ink,
+    );
+    canvas.drawPath(
+      leg,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = _legStrokeWidth
+        ..strokeCap = StrokeCap.round
+        ..color = spec.shirt,
+    );
+
+    // A simple flat shoe silhouette, always ink-colored regardless of
+    // outfit — matching how real flat/chibi character illustration usually
+    // treats footwear as a fixed dark shape rather than another paletted
+    // slot.
+    final shoe = RRect.fromRectAndRadius(
+      Rect.fromCenter(
+        center: Offset(ankle.dx, ankle.dy + _footHeight / 2 - 1),
+        width: _footHalfWidth * 2,
+        height: _footHeight,
+      ),
+      const Radius.circular(4),
+    );
+    canvas.drawRRect(shoe, Paint()..color = AppColors.ink);
   }
 
   Path _bodyPath() {
@@ -473,16 +600,46 @@ class _AvatarFigurePainter extends CustomPainter {
     );
   }
 
-  void _paintShirtCollar(Canvas canvas) {
-    final path = Path()
-      ..moveTo(_shoulderLeftX + 4, _shoulderY + 2)
-      ..quadraticBezierTo(42, _shoulderY + 6, _shoulderRightX - 4, _shoulderY + 2);
+  /// A real collar shape (previously just a single stroked line, which read
+  /// as a squiggle rather than a shirt) following a shallow scoop-neck hem
+  /// down from each shoulder to a slight center rise. The fill is drawn
+  /// `clipPath`'d to [_bodyPath] so it can **never** paint outside the
+  /// vessel's own rounded-shoulder silhouette regardless of these hand-tuned
+  /// coordinates — robust against the corner rounding rather than requiring
+  /// the hem's width to be re-derived by hand if the vessel's own shoulder
+  /// geometry ever changes. Deliberately shallow (hem dips only ~8 units
+  /// below `_shoulderY`, `_baseY - _shoulderY` being 40 total) so it reads as
+  /// a collar trim, not a permanent block over a third of the life-meter —
+  /// it only ever covers fill that would otherwise show above ~80% life.
+  Path _shirtYokeHem() {
+    const double sideDipY = _shoulderY + 8;
+    const double centerDipY = _shoulderY + 3;
+    return Path()
+      ..moveTo(_shoulderLeftX + 2, _shoulderY)
+      ..quadraticBezierTo(_shoulderLeftX + 5, sideDipY - 3, 35, sideDipY)
+      ..quadraticBezierTo(38, centerDipY + 3, 42, centerDipY)
+      ..quadraticBezierTo(46, centerDipY + 3, 49, sideDipY)
+      ..quadraticBezierTo(_shoulderRightX - 5, sideDipY - 3, _shoulderRightX - 2, _shoulderY);
+  }
+
+  void _paintShirtYoke(Canvas canvas) {
+    final hem = _shirtYokeHem();
+
+    canvas.save();
+    canvas.clipPath(_bodyPath());
+    canvas.drawPath(Path.from(hem)..close(), Paint()..color = spec.shirt);
+    canvas.restore();
+
+    // Only the hem curve gets its own ink line — the shape's top edge
+    // coincides with the vessel's own already-stroked shoulder line, so
+    // stroking it again here would double up rather than add detail.
     canvas.drawPath(
-      path,
+      hem,
       Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = _detailStrokeWidth
-        ..color = spec.shirt,
+        ..strokeCap = StrokeCap.round
+        ..color = AppColors.ink,
     );
   }
 
@@ -498,10 +655,30 @@ class _AvatarFigurePainter extends CustomPainter {
     );
   }
 
+  /// Simple straight brows, previously absent entirely (bare dot eyes read
+  /// as blank/expressionless, especially at HUD scale). A slight upward-out
+  /// angle on both reads as friendly/alert rather than stern.
+  void _paintEyebrows(Canvas canvas) {
+    final paint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.8
+      ..strokeCap = StrokeCap.round
+      ..color = AppColors.ink;
+    canvas.drawLine(const Offset(33, 32.5), const Offset(39, 31.5), paint);
+    canvas.drawLine(const Offset(45, 31.5), const Offset(51, 32.5), paint);
+  }
+
   void _paintEyes(Canvas canvas) {
     final paint = Paint()..color = AppColors.ink;
     canvas.drawCircle(const Offset(36, 38), 2, paint);
     canvas.drawCircle(const Offset(48, 38), 2, paint);
+
+    // A tiny sparkle highlight in each eye — cheap (two more small circles)
+    // and a standard warmth cue in friendly flat-character illustration;
+    // plain solid dots previously read as slightly blank/dead-eyed.
+    final highlight = Paint()..color = AppColors.paper;
+    canvas.drawCircle(const Offset(35.2, 37.2), 0.7, highlight);
+    canvas.drawCircle(const Offset(47.2, 37.2), 0.7, highlight);
   }
 
   void _paintMouth(Canvas canvas) {
@@ -518,9 +695,72 @@ class _AvatarFigurePainter extends CustomPainter {
   }
 
   void _paintHair(Canvas canvas) {
-    canvas.drawPath(_hairPath(spec.hair), Paint()..color = spec.hairColor);
+    final path = _hairPath(spec.hair);
+    canvas.drawPath(path, Paint()..color = spec.hairColor);
+    // Every other shape in this figure (body/head/arms/collar) gets an ink
+    // outline; hair previously didn't, leaving its outer silhouette to just
+    // fade into the background with no definition. `StrokeJoin.round` since
+    // several styles (the curl clusters) are unions of circles with sharp
+    // path seams at the overlaps.
+    canvas.drawPath(
+      path,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = _detailStrokeWidth
+        ..strokeJoin = StrokeJoin.round
+        ..color = AppColors.ink,
+    );
+    _paintHairTexture(canvas, spec.hair);
     if (spec.hair == AvatarHair.curlyWithBow) {
       _paintBow(canvas);
+    }
+  }
+
+  /// A light strand/part accent on the flatter silhouettes — one or two
+  /// thin, half-opacity ink lines, purely decorative texture on top of the
+  /// already-closed, already-outlined hair shape. Not every style needs
+  /// this (the curl clusters and the two-piece styles already read as hair
+  /// from their silhouette alone); skipped entirely for those rather than
+  /// added everywhere for its own sake.
+  static void _paintHairTexture(Canvas canvas, AvatarHair hair) {
+    final line = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.1
+      ..strokeCap = StrokeCap.round
+      ..color = AppColors.ink.withValues(alpha: 0.4);
+
+    switch (hair) {
+      case AvatarHair.sweptBack:
+        canvas.drawPath(
+          Path()
+            ..moveTo(34, 22)
+            ..quadraticBezierTo(44, 20, 54, 26),
+          line,
+        );
+      case AvatarHair.sidePart:
+        canvas.drawLine(const Offset(41, 19), const Offset(37, 26), line);
+      case AvatarHair.wavySide:
+        canvas.drawPath(
+          Path()
+            ..moveTo(30, 22)
+            ..quadraticBezierTo(42, 26, 52, 24),
+          line,
+        );
+      case AvatarHair.buzzcut:
+        canvas.drawLine(const Offset(34, 22), const Offset(36, 28), line);
+        canvas.drawLine(const Offset(42, 20), const Offset(42, 26), line);
+        canvas.drawLine(const Offset(50, 22), const Offset(48, 28), line);
+      case AvatarHair.bobWithPart:
+        canvas.drawLine(const Offset(41, 18), const Offset(37, 27), line);
+      case AvatarHair.longStraightCenter:
+        canvas.drawLine(const Offset(42, 18), const Offset(42, 26), line);
+      case AvatarHair.spiky:
+      case AvatarHair.curlyRound:
+      case AvatarHair.longFlowingSplit:
+      case AvatarHair.curlyWithBow:
+      case AvatarHair.pigtails:
+      case AvatarHair.shortBobCurlUnder:
+        return;
     }
   }
 
@@ -600,9 +840,18 @@ class _AvatarFigurePainter extends CustomPainter {
 
       case AvatarHair.curlyRound:
         {
+          // Varied radii/heights (not 4 identical circles in a flat row) for
+          // a rounder, more organic curl-cluster silhouette.
           final path = Path();
-          for (final cx in [30.0, 38.0, 46.0, 54.0]) {
-            path.addOval(Rect.fromCircle(center: Offset(cx, 24), radius: 8));
+          const curls = [
+            (28.0, 27.0, 7.0),
+            (36.0, 21.0, 8.5),
+            (45.0, 20.0, 8.5),
+            (54.0, 22.0, 8.0),
+            (60.0, 28.0, 6.5),
+          ];
+          for (final (cx, cy, r) in curls) {
+            path.addOval(Rect.fromCircle(center: Offset(cx, cy), radius: r));
           }
           return path;
         }
@@ -620,10 +869,10 @@ class _AvatarFigurePainter extends CustomPainter {
 
       case AvatarHair.buzzcut:
         return Path()
-          ..moveTo(28, 30)
-          ..quadraticBezierTo(30, 19, 42, 19)
-          ..quadraticBezierTo(54, 19, 56, 30)
-          ..quadraticBezierTo(42, 23, 28, 30)
+          ..moveTo(27, 32)
+          ..quadraticBezierTo(29, 19, 42, 19)
+          ..quadraticBezierTo(55, 19, 57, 32)
+          ..quadraticBezierTo(42, 24, 27, 32)
           ..close();
 
       case AvatarHair.longFlowingSplit:
