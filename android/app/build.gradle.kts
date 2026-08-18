@@ -60,6 +60,18 @@ android {
             } else {
                 signingConfigs.getByName("debug")
             }
+            // R8 shrink/obfuscate/optimize (Play Console's "App optimization"
+            // score was flat 37% across all three metrics with this off --
+            // that's Flutter's own baseline, nothing app-level on top of it).
+            // proguard-rules.pro carries the one keep-set this app actually
+            // needs: flutter_local_notifications' Gson-serialized reminder
+            // state, which R8 silently corrupts without it.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
         }
     }
 }
