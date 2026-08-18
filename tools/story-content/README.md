@@ -89,15 +89,28 @@ fonts this app targets:
 - `⏰️` is U+23F0 + U+FE0F (multi-codepoint, not ZWJ) — fine as long as it's
   never `substring`'d, which it isn't (icons are display-only, never
   measured/indexed/truncated).
-- Use `🆘`, never `🛟` — the ring-buoy (`🛟`) is Unicode 14.0/2021 and risks
+- Use `🆘`, never `🛟` — the ring-buoy (`🛟`) is Emoji 14.0/2021 and risks
   tofu-rendering (a blank box) on older Android system emoji fonts, which
   would ship straight into the rasterized shared PNG used for social
-  sharing. `🆘` is Unicode 6.0/2010 and safe on every device this app
-  targets.
-- **Apply this test to any new emoji: if it postdates ~2015, don't.**
-- `😮‍💨` contains a ZWJ (zero-width joiner); it is display-only and never
-  measured, indexed, or truncated, so it's safe to use despite being a
-  compound sequence.
+  sharing. `🆘` is Emoji 1.0/2015 (Unicode 6.0/2010) and safe on every
+  device this app targets.
+- **Apply this test to any new emoji: if it postdates ~2015, don't.** This
+  is about the *Emoji spec version* the glyph itself was added in, not just
+  the Unicode version of its underlying codepoint — `⚰️`'s codepoint dates
+  to Unicode 4.1/2005, but it wasn't an *emoji* until Emoji 1.0/2015, and
+  it's had real rendering support since Android 6.0.1. Don't assume an
+  old-looking dingbat is risky without checking; conversely don't assume a
+  ZWJ sequence is safe just because it's display-only-safe (see next point)
+  — those are two different axes of "safe."
+- ZWJ (zero-width joiner) sequences are safe from a *string-handling*
+  standpoint as long as they're never `substring`'d/measured/indexed
+  (icons never are here) — but that says nothing about whether the
+  *glyph itself* clears the ~2015 tofu-rendering test above. `😮‍💨` (face
+  exhaling) was previously used here and cited as "safe" on exactly that
+  string-handling logic alone, while actually being Emoji 13.1/2021 — a
+  live tofu-rendering violation this note's own author missed. It's been
+  replaced with `😌` (relieved face, Emoji 1.0/2015). Don't reintroduce it
+  without re-clearing the version test independently of ZWJ-safety.
 
 ## `updatedAt` is for humans only
 

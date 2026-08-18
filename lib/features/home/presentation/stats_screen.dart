@@ -28,7 +28,7 @@ class StatsScreen extends ConsumerWidget {
                 children: [
                   _StatRow(emoji: '📈', label: 'Best life', value: '${snap.bestLifePercent}%'),
                   _StatRow(emoji: '💀', label: 'Total deaths', value: '${snap.totalDeaths}'),
-                  _StatRow(emoji: '🛟', label: 'Survives', value: '${snap.totalSurvives}'),
+                  _StatRow(emoji: '🆘', label: 'Survives', value: '${snap.totalSurvives}'),
                   _StatRow(emoji: '✨', label: 'Eternal Humans', value: '${snap.totalEternal}', valueColor: AppColors.goldDark),
                   _StatRow(
                     emoji: '🔥',
