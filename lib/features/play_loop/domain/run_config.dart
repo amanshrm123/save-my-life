@@ -16,7 +16,7 @@ class RunConfig {
     this.eternalPerfectCount = 3,
     this.countdownSteps = 3,
     this.countdownStepMs = 700,
-    this.flashDwellMs = 600,
+    this.flashDwellMs = 1100,
     this.autoMissGraceMs = 1000,
     this.minStopElapsedMs = 200,
   });
