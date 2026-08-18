@@ -350,15 +350,84 @@ class _AvatarFigurePainter extends CustomPainter {
     canvas.save();
     canvas.scale(size.width / _kUnitWidth, size.height / _kUnitHeight);
 
+    _paintArms(canvas);
     _paintBody(canvas);
     _paintNeck(canvas);
-    _paintShirtCollar(canvas);
+    _paintShirtYoke(canvas);
     _paintHead(canvas);
     _paintEyes(canvas);
     _paintMouth(canvas);
     _paintHair(canvas);
 
     canvas.restore();
+  }
+
+  /// Structural pass (this figure previously had no limbs at all — just a
+  /// floating head on the life-meter vessel): a pair of simple flat "sleeve"
+  /// arms ending in rounded mitt hands, matching this app's existing
+  /// sticker-illustration language (2.5px ink outline, flat fill, no
+  /// gradients) and the chibi/mascot convention of simplified rounded-mitt
+  /// hands rather than fingers. Each arm's shoulder attachment point is
+  /// deliberately *inside* the body silhouette (`_bodyPath`'s shoulder
+  /// width), so [_paintBody] — drawn right after this, per [paint]'s call
+  /// order — naturally covers the socket, leaving only the part of the arm
+  /// that has already swept clear of the vessel's own (wider-at-the-base)
+  /// taper visible. Purely additive: never touches `_bodyPath`/the fill
+  /// clip, so the life-meter mechanic is byte-for-byte unchanged.
+  static const double _armStrokeWidth = 9;
+  static const double _handRadius = 5.5;
+
+  void _paintArms(Canvas canvas) {
+    _paintArm(canvas, side: -1);
+    _paintArm(canvas, side: 1);
+  }
+
+  /// One arm. `side` is `-1` (left) or `1` (right) — every coordinate below
+  /// is expressed as an offset from the figure's horizontal center (42) so
+  /// the two arms stay exactly mirrored.
+  void _paintArm(Canvas canvas, {required double side}) {
+    final shoulder = Offset(42 + side * 8, 62);
+    final control = Offset(42 + side * 27, 70);
+    final cuff = Offset(42 + side * 25, 82);
+    final hand = Offset(42 + side * 28, 87);
+
+    final sleeve = Path()
+      ..moveTo(shoulder.dx, shoulder.dy)
+      ..quadraticBezierTo(control.dx, control.dy, cuff.dx, cuff.dy);
+
+    // Outline-then-fill via two same-path strokes (matching how the rest of
+    // this painter fakes an outlined flat shape without building a second
+    // outline polygon): a wider ink pass first, a narrower shirt-color pass
+    // on top, both round-capped/joined so the result reads as one rounded
+    // sleeve rather than a stroked line.
+    canvas.drawPath(
+      sleeve,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = _armStrokeWidth + _strokeWidth
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round
+        ..color = AppColors.ink,
+    );
+    canvas.drawPath(
+      sleeve,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = _armStrokeWidth
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round
+        ..color = spec.shirt,
+    );
+
+    canvas.drawCircle(hand, _handRadius, Paint()..color = spec.skin);
+    canvas.drawCircle(
+      hand,
+      _handRadius,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = _detailStrokeWidth
+        ..color = AppColors.ink,
+    );
   }
 
   Path _bodyPath() {
@@ -473,16 +542,46 @@ class _AvatarFigurePainter extends CustomPainter {
     );
   }
 
-  void _paintShirtCollar(Canvas canvas) {
-    final path = Path()
-      ..moveTo(_shoulderLeftX + 4, _shoulderY + 2)
-      ..quadraticBezierTo(42, _shoulderY + 6, _shoulderRightX - 4, _shoulderY + 2);
+  /// A real collar shape (previously just a single stroked line, which read
+  /// as a squiggle rather than a shirt) following a shallow scoop-neck hem
+  /// down from each shoulder to a slight center rise. The fill is drawn
+  /// `clipPath`'d to [_bodyPath] so it can **never** paint outside the
+  /// vessel's own rounded-shoulder silhouette regardless of these hand-tuned
+  /// coordinates — robust against the corner rounding rather than requiring
+  /// the hem's width to be re-derived by hand if the vessel's own shoulder
+  /// geometry ever changes. Deliberately shallow (hem dips only ~8 units
+  /// below `_shoulderY`, `_baseY - _shoulderY` being 40 total) so it reads as
+  /// a collar trim, not a permanent block over a third of the life-meter —
+  /// it only ever covers fill that would otherwise show above ~80% life.
+  Path _shirtYokeHem() {
+    const double sideDipY = _shoulderY + 8;
+    const double centerDipY = _shoulderY + 3;
+    return Path()
+      ..moveTo(_shoulderLeftX + 2, _shoulderY)
+      ..quadraticBezierTo(_shoulderLeftX + 5, sideDipY - 3, 35, sideDipY)
+      ..quadraticBezierTo(38, centerDipY + 3, 42, centerDipY)
+      ..quadraticBezierTo(46, centerDipY + 3, 49, sideDipY)
+      ..quadraticBezierTo(_shoulderRightX - 5, sideDipY - 3, _shoulderRightX - 2, _shoulderY);
+  }
+
+  void _paintShirtYoke(Canvas canvas) {
+    final hem = _shirtYokeHem();
+
+    canvas.save();
+    canvas.clipPath(_bodyPath());
+    canvas.drawPath(Path.from(hem)..close(), Paint()..color = spec.shirt);
+    canvas.restore();
+
+    // Only the hem curve gets its own ink line — the shape's top edge
+    // coincides with the vessel's own already-stroked shoulder line, so
+    // stroking it again here would double up rather than add detail.
     canvas.drawPath(
-      path,
+      hem,
       Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = _detailStrokeWidth
-        ..color = spec.shirt,
+        ..strokeCap = StrokeCap.round
+        ..color = AppColors.ink,
     );
   }
 
