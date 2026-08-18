@@ -225,18 +225,21 @@ const perfectOffset = Duration.zero;
 const hitOffset = Duration(milliseconds: 100);
 const missOffset = Duration(seconds: 5);
 
-/// Flushes the screen's post-stop flash-dwell timer (`RunConfig.flashDwellMs`
-/// = 600ms) so `advanceAfterDwell()` actually fires and the phase advances
-/// (re-arm / final-band / ended-and-handoff-to-outcome).
+/// Flushes the screen's post-stop flash-dwell timer (`RunConfig.flashDwellMs`)
+/// so `advanceAfterDwell()` actually fires and the phase advances
+/// (re-arm / final-band / ended-and-handoff-to-outcome). The 1200ms + 2200ms
+/// pumps below total 3400ms of simulated time — `flashDwellMs` (1100ms) +
+/// the ~280ms route transition + `OutcomeCardScreen`'s 1000ms min-load floor
+/// (see below) is 2380ms, so this keeps ~1000ms of margin for future tuning.
 Future<void> flushDwell(WidgetTester tester) async {
-  await tester.pump(const Duration(milliseconds: 700));
-  // A generous 1600ms window (not just `_pumpBriefly`'s default 500ms):
-  // when this dwell is the run's terminal one, it also needs to carry
+  await tester.pump(const Duration(milliseconds: 1200));
+  // A generous window (not just `_pumpBriefly`'s default 500ms): when this
+  // dwell is the run's terminal one, it also needs to carry
   // `OutcomeCardScreen` past its own `kMinStoryLoadDuration` (1000ms) real
   // loader floor before callers can assert on the resolved card's content —
   // still bounded/finite, so still safe against `LifeAvatar`'s continuous
   // wave on whichever screen is actually current.
-  await _pumpBriefly(tester, const Duration(milliseconds: 1600));
+  await _pumpBriefly(tester, const Duration(milliseconds: 2200));
 }
 
 /// Drives whatever run is currently live to a **death**, via genuine real

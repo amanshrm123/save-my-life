@@ -304,8 +304,9 @@ void main() {
         // which is where the death outcome/deaths increment is actually
         // applied — read it back immediately after that single pump, before
         // a further `pumpAndSettle()` completes the hand-off navigation and
-        // tears the (autoDispose) provider down.
-        await tester.pump(const Duration(milliseconds: 700));
+        // tears the (autoDispose) provider down. Comfortably past
+        // `RunConfig.flashDwellMs` (1100ms).
+        await tester.pump(const Duration(milliseconds: 1200));
 
         expect(c.state.outcome, RunOutcome.death);
         expect(c.state.deaths, 3, reason: 'RunState.deaths itself is untouched by the HUD change');
