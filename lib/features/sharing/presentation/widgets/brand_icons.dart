@@ -6,36 +6,39 @@ import '../../domain/share_target.dart';
 /// Brand glyphs for the 3 share tiles (design share-target-sheet-v1 §1/§11
 /// checklist item 6, architecture §12 play-store-specialist flag 5).
 ///
-/// The SVGs under `assets/brand/` are sourced verbatim from Simple Icons
-/// (github.com/simple-icons/simple-icons, MIT-licensed markup,
-/// `develop/icons/{instagram,facebook,whatsapp}.svg`) — a pixel-accurate
-/// reproduction of each brand's current public glyph, the same source
-/// thousands of production apps use for exactly this "share to X" button
-/// case. This is NOT the same thing as Meta's/WhatsApp's own officially
-/// *licensed* asset from their Brand Resource Center: obtaining those
-/// requires logging into a Meta/WhatsApp-linked account and accepting their
-/// brand usage terms on the app's behalf, which is a business decision for
-/// whoever owns that account, not something to do unattended here. If/when
-/// the official assets are obtained, swap the files under `assets/brand/`
-/// for the licensed ones — this widget's structure (a colored backing shape
-/// plus an `SvgPicture.asset` on top) doesn't need to change.
+/// Facebook and WhatsApp now use the real, officially-licensed assets
+/// (`assets/brand/facebook.png`, `assets/brand/whatsapp.svg`), downloaded
+/// directly from Meta's own Brand Resource Center
+/// (meta.com/brand/resources/facebook/logo,
+/// meta.com/brand/resources/whatsapp/whatsapp-brand) after accepting their
+/// brand usage terms — that login/acceptance step is a business decision
+/// for whoever owns the linked account, so it isn't something done
+/// unattended here; the files themselves were handed over afterward.
+/// Facebook's pack only shipped `.ai`/`.png` (no `.svg`), hence it's the
+/// one raster asset in this otherwise-vector set — at 2084×2084 it's far
+/// larger than this tile ever renders at, so there's no visible quality
+/// cost. Instagram's `assets/brand/instagram.svg` is still the interim
+/// Simple Icons (github.com/simple-icons/simple-icons, MIT-licensed)
+/// reproduction pending the same treatment — swap that file in once
+/// obtained, no code change needed here.
 ///
-/// Rendered via `flutter_svg`, not hand-parsed `Path` data — zero
-/// `Image`/`ImageCache` entries in the app's own sense (these are vector,
-/// not raster, assets), consistent with this app's RAM-resident design.
+/// Rendered via `flutter_svg`/`Image.asset`, not hand-parsed `Path` data —
+/// still zero `ImageCache` churn in the app's own dynamic-content sense
+/// (these are 3 fixed, tiny, static assets, not the many-variant procedural
+/// content this app's RAM-resident design principle is actually about).
 ///
-/// Each brand's Simple Icons glyph has a genuinely different native shape,
-/// verified by rendering the raw SVGs standalone (macOS Quick Look, a
-/// renderer independent of both this app's `flutter_svg` and an earlier
-/// abandoned `path_drawing` attempt) rather than assumed: Facebook's path
-/// already IS a solid disc with a white "f" cut into it via the path's own
-/// winding, so a single tinted `SvgPicture` reproduces the real two-tone
-/// mark directly. Instagram's and WhatsApp's paths are pure line-art (an
-/// outline camera glyph / an outline phone-in-bubble glyph, each with no
-/// fill of their own) — confirmed intentional, not a rendering bug — so
-/// both get an explicit colored backing shape drawn behind them here,
-/// matching each brand's real app-icon silhouette (Instagram: rounded
-/// square; WhatsApp: circle, same as Facebook's).
+/// Each brand's glyph has a genuinely different native shape, verified by
+/// rendering standalone (macOS Quick Look, independent of both
+/// `flutter_svg` and an earlier abandoned `path_drawing` attempt) rather
+/// than assumed: Facebook's asset already IS a solid disc with a white "f"
+/// baked in, self-contained, no tinting needed. WhatsApp's official glyph
+/// is pure line-art (an outline phone-in-a-speech-bubble, no fill/
+/// background of its own — this is Meta's actual intended presentation for
+/// this asset, not a rendering bug), so it gets an explicit solid-green
+/// circular backing drawn behind it here, tinted white on top, matching the
+/// real WhatsApp app icon's look. Instagram's Simple Icons glyph is the
+/// same kind of line-art, hence the same treatment with a gradient backing
+/// instead (Instagram's real icon has no single flat brand color).
 Widget brandGlyphFor(ShareTarget target, {double size = 40}) {
   switch (target) {
     case ShareTarget.instagramStory:
@@ -50,14 +53,10 @@ Widget brandGlyphFor(ShareTarget target, {double size = 40}) {
 /// WhatsApp's current brand green.
 const Color _whatsAppGreen = Color(0xFF25D366);
 
-/// Facebook's current brand blue (Meta's 2021 refresh, `#0866FF` — updated
-/// from the older `#1877F2`).
-const Color _facebookBlue = Color(0xFF0866FF);
-
-/// Facebook's Simple Icons path already encodes its own "solid disc with a
-/// white glyph cutout" shape via the path's own winding — a single tinted
-/// `SvgPicture` reproduces the real two-tone mark directly, no separate
-/// background layer needed.
+/// Meta's official Facebook logo asset (`Logo/Primary Logo` from the
+/// downloaded Brand Asset Pack) is already the complete "solid blue disc,
+/// white f" mark, baked into the PNG itself with a transparent surround —
+/// rendered as-is, no tinting/backing shape needed.
 class _FacebookGlyph extends StatelessWidget {
   const _FacebookGlyph({required this.size});
 
@@ -65,18 +64,19 @@ class _FacebookGlyph extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SvgPicture.asset(
-      'assets/brand/facebook.svg',
+    return Image.asset(
+      'assets/brand/facebook.png',
       width: size,
       height: size,
-      colorFilter: const ColorFilter.mode(_facebookBlue, BlendMode.srcIn),
     );
   }
 }
 
-/// WhatsApp's Simple Icons glyph is pure line-art (an outline phone-in-a-
-/// speech-bubble, no fill of its own — confirmed against a standalone
-/// render, not a rendering bug), unlike Facebook's self-contained path
+/// WhatsApp's official glyph (Meta Brand Resource Center's "Digital Glyph,
+/// Green, RGB" export) is pure line-art (an outline phone-in-a-speech-
+/// bubble, no fill/background of its own — confirmed against a standalone
+/// render, this is Meta's actual intended presentation for this specific
+/// asset, not a rendering bug), unlike Facebook's self-contained PNG
 /// above — so it needs an explicit solid-green circular backing (matching
 /// the real WhatsApp app icon's circular shape) with the glyph tinted
 /// white on top, the same two-layer treatment [_InstagramGlyph] below uses.

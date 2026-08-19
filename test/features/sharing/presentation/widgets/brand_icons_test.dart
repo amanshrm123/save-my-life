@@ -4,10 +4,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:timing_tap/features/sharing/domain/share_target.dart';
 import 'package:timing_tap/features/sharing/presentation/widgets/brand_icons.dart';
 
-/// Coverage for `brandGlyphFor` (bug fix: the earlier hand-drawn
-/// `CustomPainter` glyphs were approximations; these are pixel-accurate
-/// Simple Icons SVGs, verified on-device — see `brand_icons.dart`'s doc
-/// comment for why each brand needs a different backing-shape treatment).
+/// Coverage for `brandGlyphFor`. Facebook and WhatsApp now render Meta's
+/// real, officially-licensed brand assets (downloaded from their Brand
+/// Resource Center); Instagram is still the interim Simple Icons
+/// reproduction pending the same treatment — see `brand_icons.dart`'s doc
+/// comment for the full sourcing/rendering rationale.
 void main() {
   Future<void> pump(WidgetTester tester, ShareTarget target) {
     return tester.pumpWidget(
@@ -25,18 +26,29 @@ void main() {
     }
   });
 
-  testWidgets('every target renders exactly one SvgPicture (the brand glyph)', (tester) async {
-    for (final target in ShareTarget.values) {
-      await pump(tester, target);
+  testWidgets(
+    'Instagram/WhatsApp render their vector glyph (SvgPicture); Facebook '
+    "renders Meta's real logo PNG (Image) — not the other widget type",
+    (tester) async {
+      await pump(tester, ShareTarget.instagramStory);
       await tester.pump();
-      expect(find.byType(SvgPicture), findsOneWidget, reason: 'target: $target');
-    }
-  });
+      expect(find.byType(SvgPicture), findsOneWidget);
+
+      await pump(tester, ShareTarget.whatsappStatus);
+      await tester.pump();
+      expect(find.byType(SvgPicture), findsOneWidget);
+
+      await pump(tester, ShareTarget.facebookStory);
+      await tester.pump();
+      expect(find.byType(SvgPicture), findsNothing);
+      expect(find.byType(Image), findsOneWidget);
+    },
+  );
 
   testWidgets(
     'Instagram and WhatsApp draw an explicit colored backing shape behind '
-    'their (fill-less, line-art) glyph; Facebook does not need one since its '
-    'own path is a self-contained solid-with-cutout shape',
+    'their (fill-less, line-art) glyph; Facebook needs none since its PNG '
+    'is already the complete two-tone mark',
     (tester) async {
       await pump(tester, ShareTarget.instagramStory);
       await tester.pump();
@@ -58,9 +70,9 @@ void main() {
       await pump(tester, ShareTarget.facebookStory);
       await tester.pump();
       expect(
-        find.ancestor(of: find.byType(SvgPicture), matching: find.byType(Container)),
+        find.ancestor(of: find.byType(Image), matching: find.byType(Container)),
         findsNothing,
-        reason: "Facebook's SVG is self-contained — no backing Container should wrap it",
+        reason: "Facebook's PNG is self-contained — no backing Container should wrap it",
       );
     },
   );
