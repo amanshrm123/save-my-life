@@ -24,6 +24,16 @@ import '../../domain/share_target.dart';
 /// matches the gradient-backing treatment this widget was using with the
 /// interim Simple Icons reproduction, so no rendering logic changed.
 ///
+/// `whatsapp.svg`/`instagram.svg` originally exported their fill via
+/// `<defs><style>.cls-1{fill:...}</style></defs>` + `class="cls-1"` on each
+/// `<path>` — `flutter_svg`'s `vector_graphics_compiler` doesn't resolve CSS
+/// `class` selectors at all (it logs a benign `unhandled element <style/>`
+/// and silently falls through to the SVG-spec default fill instead), which
+/// only ever looked correct here by accident of the `ColorFilter.srcIn`
+/// tint below being fill-color-agnostic. Fixed at the source: both files now
+/// carry `fill="..."` directly on each `<path>`, so they'd render correctly
+/// even without the tint and the parser warning is gone.
+///
 /// Rendered via `flutter_svg`/`Image.asset`, not hand-parsed `Path` data —
 /// still zero `ImageCache` churn in the app's own dynamic-content sense
 /// (these are 3 fixed, tiny, static assets, not the many-variant procedural
