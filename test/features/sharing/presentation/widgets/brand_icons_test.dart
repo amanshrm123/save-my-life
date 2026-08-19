@@ -4,11 +4,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:timing_tap/features/sharing/domain/share_target.dart';
 import 'package:timing_tap/features/sharing/presentation/widgets/brand_icons.dart';
 
-/// Coverage for `brandGlyphFor`. Facebook and WhatsApp now render Meta's
-/// real, officially-licensed brand assets (downloaded from their Brand
-/// Resource Center); Instagram is still the interim Simple Icons
-/// reproduction pending the same treatment — see `brand_icons.dart`'s doc
-/// comment for the full sourcing/rendering rationale.
+/// Coverage for `brandGlyphFor`. All 3 targets now render Meta's real,
+/// officially-licensed brand assets (downloaded from their Brand Resource
+/// Center) — see `brand_icons.dart`'s doc comment for the full
+/// sourcing/rendering rationale.
 void main() {
   Future<void> pump(WidgetTester tester, ShareTarget target) {
     return tester.pumpWidget(

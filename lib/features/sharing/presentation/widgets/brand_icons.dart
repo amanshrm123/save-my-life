@@ -6,21 +6,23 @@ import '../../domain/share_target.dart';
 /// Brand glyphs for the 3 share tiles (design share-target-sheet-v1 §1/§11
 /// checklist item 6, architecture §12 play-store-specialist flag 5).
 ///
-/// Facebook and WhatsApp now use the real, officially-licensed assets
-/// (`assets/brand/facebook.png`, `assets/brand/whatsapp.svg`), downloaded
-/// directly from Meta's own Brand Resource Center
-/// (meta.com/brand/resources/facebook/logo,
-/// meta.com/brand/resources/whatsapp/whatsapp-brand) after accepting their
-/// brand usage terms — that login/acceptance step is a business decision
-/// for whoever owns the linked account, so it isn't something done
-/// unattended here; the files themselves were handed over afterward.
+/// All 3 now use real, officially-licensed assets (`assets/brand/
+/// facebook.png`, `assets/brand/whatsapp.svg`, `assets/brand/
+/// instagram.svg`), downloaded directly from Meta's own Brand Resource
+/// Center (meta.com/brand/resources/facebook/logo,
+/// meta.com/brand/resources/whatsapp/whatsapp-brand,
+/// meta.com/brand/resources/instagram/instagram-brand) after accepting
+/// their brand usage terms — that login/acceptance step is a business
+/// decision for whoever owns the linked account, so it isn't something
+/// done unattended here; the files themselves were handed over afterward.
 /// Facebook's pack only shipped `.ai`/`.png` (no `.svg`), hence it's the
 /// one raster asset in this otherwise-vector set — at 2084×2084 it's far
 /// larger than this tile ever renders at, so there's no visible quality
-/// cost. Instagram's `assets/brand/instagram.svg` is still the interim
-/// Simple Icons (github.com/simple-icons/simple-icons, MIT-licensed)
-/// reproduction pending the same treatment — swap that file in once
-/// obtained, no code change needed here.
+/// cost. Instagram's asset is Meta's own "White Glyph" export (`01 Static
+/// Glyph/02 White Glyph`), a single-color line-art variant explicitly
+/// meant to sit on a colored backing — i.e. Meta's own pack already
+/// matches the gradient-backing treatment this widget was using with the
+/// interim Simple Icons reproduction, so no rendering logic changed.
 ///
 /// Rendered via `flutter_svg`/`Image.asset`, not hand-parsed `Path` data —
 /// still zero `ImageCache` churn in the app's own dynamic-content sense
@@ -31,14 +33,13 @@ import '../../domain/share_target.dart';
 /// rendering standalone (macOS Quick Look, independent of both
 /// `flutter_svg` and an earlier abandoned `path_drawing` attempt) rather
 /// than assumed: Facebook's asset already IS a solid disc with a white "f"
-/// baked in, self-contained, no tinting needed. WhatsApp's official glyph
-/// is pure line-art (an outline phone-in-a-speech-bubble, no fill/
-/// background of its own — this is Meta's actual intended presentation for
-/// this asset, not a rendering bug), so it gets an explicit solid-green
-/// circular backing drawn behind it here, tinted white on top, matching the
-/// real WhatsApp app icon's look. Instagram's Simple Icons glyph is the
-/// same kind of line-art, hence the same treatment with a gradient backing
-/// instead (Instagram's real icon has no single flat brand color).
+/// baked in, self-contained, no tinting needed. WhatsApp's and Instagram's
+/// official glyphs are both pure line-art (no fill/background of their
+/// own — this is Meta's actual intended presentation for these assets, not
+/// a rendering bug), so each gets an explicit colored backing drawn behind
+/// it here with the glyph tinted white on top: a solid-green circle for
+/// WhatsApp matching its real app icon, a gradient square for Instagram
+/// since its real icon has no single flat brand color.
 Widget brandGlyphFor(ShareTarget target, {double size = 40}) {
   switch (target) {
     case ShareTarget.instagramStory:
@@ -101,10 +102,11 @@ class _WhatsAppGlyph extends StatelessWidget {
 }
 
 /// Instagram's real gradient (matches Meta's own published Instagram icon
-/// gradient family) with the accurate Simple Icons glyph on top — a
+/// gradient family) with Meta's official "White Glyph" export on top — a
 /// square-ring outline + camera-lens ring + flash dot, all line-art with no
-/// fill of its own (same reasoning as [_WhatsAppGlyph] above) — tinted
-/// white. A flat single color can't represent a gradient, so this
+/// fill of its own (same reasoning as [_WhatsAppGlyph] above) — already
+/// white, tinted white here as a no-op for consistency with the other two
+/// glyphs. A flat single color can't represent a gradient, so this
 /// background is drawn explicitly rather than baked into the SVG.
 class _InstagramGlyph extends StatelessWidget {
   const _InstagramGlyph({required this.size});
