@@ -439,13 +439,7 @@ class _ShareTileState extends State<_ShareTile>
                           ],
                         ),
                         alignment: Alignment.center,
-                        child: SizedBox(
-                          width: 40,
-                          height: 40,
-                          child: CustomPaint(
-                            painter: brandGlyphPainterFor(widget.target),
-                          ),
-                        ),
+                        child: brandGlyphFor(widget.target),
                       ),
                       const SizedBox(height: 6),
                       Text(

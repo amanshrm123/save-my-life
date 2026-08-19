@@ -1,44 +1,115 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 
 import '../../domain/share_target.dart';
 
-/// PLACEHOLDER brand glyphs — pending replacement (design
-/// share-target-sheet-v1 §1/§11 checklist item 6, architecture §12
-/// play-store-specialist flag 5).
+/// Brand glyphs for the 3 share tiles (design share-target-sheet-v1 §1/§11
+/// checklist item 6, architecture §12 play-store-specialist flag 5).
 ///
-/// These are NOT Instagram/WhatsApp/Facebook's official brand assets. Real
-/// official brand assets require manually downloading each platform's own
-/// licensed vector from its brand resource center (Meta Brand Resource
-/// Center for Instagram/Facebook, WhatsApp Brand Center) under that
-/// platform's usage terms — not something to fetch/scrape automatically.
-/// Built instead as simple, recognizable, brand-colored `CustomPainter`
-/// glyphs, the same hand-built-painter approach this codebase already uses
-/// for `AvatarFigure` (zero image assets, zero `ImageCache` entries) rather
-/// than a generic Material-icon substitute (rejected by the design doc —
-/// wrong/absent brand color, inconsistent stroke style, reads as an
-/// unfinished "cheap knockoff" picker).
+/// The SVGs under `assets/brand/` are sourced verbatim from Simple Icons
+/// (github.com/simple-icons/simple-icons, MIT-licensed markup,
+/// `develop/icons/{instagram,facebook,whatsapp}.svg`) — a pixel-accurate
+/// reproduction of each brand's current public glyph, the same source
+/// thousands of production apps use for exactly this "share to X" button
+/// case. This is NOT the same thing as Meta's/WhatsApp's own officially
+/// *licensed* asset from their Brand Resource Center: obtaining those
+/// requires logging into a Meta/WhatsApp-linked account and accepting their
+/// brand usage terms on the app's behalf, which is a business decision for
+/// whoever owns that account, not something to do unattended here. If/when
+/// the official assets are obtained, swap the files under `assets/brand/`
+/// for the licensed ones — this widget's structure (a colored backing shape
+/// plus an `SvgPicture.asset` on top) doesn't need to change.
 ///
-/// MUST be swapped for each platform's real official brand asset (correct
-/// color, minimum clear-space, no implied endorsement) before store
-/// submission — flagged explicitly for app-store-specialist/
-/// play-store-specialist sign-off, not something this pass silently ships
-/// as final art.
-CustomPainter brandGlyphPainterFor(ShareTarget target) {
+/// Rendered via `flutter_svg`, not hand-parsed `Path` data — zero
+/// `Image`/`ImageCache` entries in the app's own sense (these are vector,
+/// not raster, assets), consistent with this app's RAM-resident design.
+///
+/// Each brand's Simple Icons glyph has a genuinely different native shape,
+/// verified by rendering the raw SVGs standalone (macOS Quick Look, a
+/// renderer independent of both this app's `flutter_svg` and an earlier
+/// abandoned `path_drawing` attempt) rather than assumed: Facebook's path
+/// already IS a solid disc with a white "f" cut into it via the path's own
+/// winding, so a single tinted `SvgPicture` reproduces the real two-tone
+/// mark directly. Instagram's and WhatsApp's paths are pure line-art (an
+/// outline camera glyph / an outline phone-in-bubble glyph, each with no
+/// fill of their own) — confirmed intentional, not a rendering bug — so
+/// both get an explicit colored backing shape drawn behind them here,
+/// matching each brand's real app-icon silhouette (Instagram: rounded
+/// square; WhatsApp: circle, same as Facebook's).
+Widget brandGlyphFor(ShareTarget target, {double size = 40}) {
   switch (target) {
     case ShareTarget.instagramStory:
-      return const InstagramGlyphPainter();
+      return _InstagramGlyph(size: size);
     case ShareTarget.whatsappStatus:
-      return const WhatsAppGlyphPainter();
+      return _WhatsAppGlyph(size: size);
     case ShareTarget.facebookStory:
-      return const FacebookGlyphPainter();
+      return _FacebookGlyph(size: size);
   }
 }
 
-/// Simplified gradient-camera silhouette placeholder — Instagram's real mark
-/// is a specific licensed vector; this approximates its rounded-square +
-/// lens-ring + flash-dot shape and gradient family only.
-class InstagramGlyphPainter extends CustomPainter {
-  const InstagramGlyphPainter();
+/// WhatsApp's current brand green.
+const Color _whatsAppGreen = Color(0xFF25D366);
+
+/// Facebook's current brand blue (Meta's 2021 refresh, `#0866FF` — updated
+/// from the older `#1877F2`).
+const Color _facebookBlue = Color(0xFF0866FF);
+
+/// Facebook's Simple Icons path already encodes its own "solid disc with a
+/// white glyph cutout" shape via the path's own winding — a single tinted
+/// `SvgPicture` reproduces the real two-tone mark directly, no separate
+/// background layer needed.
+class _FacebookGlyph extends StatelessWidget {
+  const _FacebookGlyph({required this.size});
+
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return SvgPicture.asset(
+      'assets/brand/facebook.svg',
+      width: size,
+      height: size,
+      colorFilter: const ColorFilter.mode(_facebookBlue, BlendMode.srcIn),
+    );
+  }
+}
+
+/// WhatsApp's Simple Icons glyph is pure line-art (an outline phone-in-a-
+/// speech-bubble, no fill of its own — confirmed against a standalone
+/// render, not a rendering bug), unlike Facebook's self-contained path
+/// above — so it needs an explicit solid-green circular backing (matching
+/// the real WhatsApp app icon's circular shape) with the glyph tinted
+/// white on top, the same two-layer treatment [_InstagramGlyph] below uses.
+class _WhatsAppGlyph extends StatelessWidget {
+  const _WhatsAppGlyph({required this.size});
+
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: const BoxDecoration(color: _whatsAppGreen, shape: BoxShape.circle),
+      padding: EdgeInsets.all(size * 0.16),
+      child: SvgPicture.asset(
+        'assets/brand/whatsapp.svg',
+        colorFilter: const ColorFilter.mode(Colors.white, BlendMode.srcIn),
+      ),
+    );
+  }
+}
+
+/// Instagram's real gradient (matches Meta's own published Instagram icon
+/// gradient family) with the accurate Simple Icons glyph on top — a
+/// square-ring outline + camera-lens ring + flash dot, all line-art with no
+/// fill of its own (same reasoning as [_WhatsAppGlyph] above) — tinted
+/// white. A flat single color can't represent a gradient, so this
+/// background is drawn explicitly rather than baked into the SVG.
+class _InstagramGlyph extends StatelessWidget {
+  const _InstagramGlyph({required this.size});
+
+  final double size;
 
   static const List<Color> _gradientColors = [
     Color(0xFFFEDA75),
@@ -48,99 +119,23 @@ class InstagramGlyphPainter extends CustomPainter {
   ];
 
   @override
-  void paint(Canvas canvas, Size size) {
-    final rect = Rect.fromLTWH(0, 0, size.width, size.height);
-    final rrect = RRect.fromRectAndRadius(rect, Radius.circular(size.width * 0.3));
-    final gradientPaint = Paint()
-      ..shader = const LinearGradient(
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-        colors: _gradientColors,
-      ).createShader(rect);
-    canvas.drawRRect(rrect, gradientPaint);
-
-    final center = Offset(size.width / 2, size.height / 2);
-    canvas.drawCircle(
-      center,
-      size.width * 0.24,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = size.width * 0.08
-        ..color = Colors.white,
-    );
-    canvas.drawCircle(
-      Offset(size.width * 0.74, size.height * 0.26),
-      size.width * 0.045,
-      Paint()..color = Colors.white,
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant InstagramGlyphPainter oldDelegate) => false;
-}
-
-/// Simplified green speech-bubble/handset placeholder — WhatsApp's real mark
-/// is a specific licensed vector; this approximates only its brand green
-/// circular fill plus a white receiver-shaped glyph.
-class WhatsAppGlyphPainter extends CustomPainter {
-  const WhatsAppGlyphPainter();
-
-  static const Color _whatsAppGreen = Color(0xFF25D366);
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    canvas.drawCircle(center, size.width / 2, Paint()..color = _whatsAppGreen);
-
-    final glyphRadius = size.width * 0.16;
-    final topLeft = Offset(size.width * 0.34, size.height * 0.36);
-    final bottomRight = Offset(size.width * 0.66, size.height * 0.64);
-    final path = Path()
-      ..addOval(Rect.fromCircle(center: topLeft, radius: glyphRadius))
-      ..addOval(Rect.fromCircle(center: bottomRight, radius: glyphRadius))
-      ..addRect(Rect.fromPoints(topLeft, bottomRight));
-    canvas.drawPath(path, Paint()..color = Colors.white);
-  }
-
-  @override
-  bool shouldRepaint(covariant WhatsAppGlyphPainter oldDelegate) => false;
-}
-
-/// Simplified blue rounded-square + white "f" placeholder — Facebook's real
-/// mark is a specific licensed vector; this approximates only its brand
-/// blue and the "f" silhouette.
-class FacebookGlyphPainter extends CustomPainter {
-  const FacebookGlyphPainter();
-
-  static const Color _facebookBlue = Color(0xFF1877F2);
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final rect = Rect.fromLTWH(0, 0, size.width, size.height);
-    final rrect = RRect.fromRectAndRadius(rect, Radius.circular(size.width * 0.22));
-    canvas.drawRRect(rrect, Paint()..color = _facebookBlue);
-
-    final textPainter = TextPainter(
-      text: TextSpan(
-        text: 'f',
-        style: TextStyle(
-          color: Colors.white,
-          fontSize: size.height * 0.72,
-          fontWeight: FontWeight.w700,
-          height: 1,
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(size * 0.3),
+        gradient: const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: _gradientColors,
         ),
       ),
-      textDirection: TextDirection.ltr,
-    )..layout();
-    textPainter.paint(
-      canvas,
-      Offset(
-        (size.width - textPainter.width) / 2,
-        (size.height - textPainter.height) / 2 - size.height * 0.03,
+      padding: EdgeInsets.all(size * 0.14),
+      child: SvgPicture.asset(
+        'assets/brand/instagram.svg',
+        colorFilter: const ColorFilter.mode(Colors.white, BlendMode.srcIn),
       ),
     );
   }
-
-  @override
-  bool shouldRepaint(covariant FacebookGlyphPainter oldDelegate) => false;
 }
