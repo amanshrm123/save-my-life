@@ -24,6 +24,16 @@
 	<string>????</string>
 	<key>CFBundleVersion</key>
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
+	<!-- Required for `canOpenURL` to return honest answers for these 3
+	     schemes (Instagram/Facebook/WhatsApp Story/Status direct-share
+	     install probes, architecture v5 §5/§10) — mirrors Android's
+	     `AndroidManifest.xml` `<queries>` block. -->
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>instagram-stories</string>
+		<string>facebook-stories</string>
+		<string>whatsapp</string>
+	</array>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>UIApplicationSceneManifest</key>

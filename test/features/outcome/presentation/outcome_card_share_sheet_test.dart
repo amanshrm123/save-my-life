@@ -278,9 +278,9 @@ void main() {
   );
 
   testWidgets(
-    'on a non-web, non-Android platform (e.g. iOS), Share skips '
-    'ShareTargetSheet entirely and goes straight to the "More…"/share_plus '
-    'path (regression for the kIsWeb-only gate — architecture §4.1)',
+    'on iOS, Share now reaches ShareTargetSheet too, not just Android — iOS '
+    'was previously (incorrectly) deferred here; `SocialSharePlugin.swift` '
+    'now implements the same 3-target channel contract as Android',
     (tester) async {
       debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
       try {
@@ -289,12 +289,45 @@ void main() {
           ProviderScope(
             overrides: [
               cardRendererProvider.overrideWithValue(fakeRenderer),
-              // If the gate regressed to kIsWeb-only, this would be consulted
-              // on iOS too; leaving it wired to a real value would make the
-              // regression harder to see, so wire it to something that would
-              // visibly fail below if it were ever read.
+              installedTargetsProvider.overrideWith((ref) async => const <ShareTarget>[]),
+            ],
+            child: MaterialApp(home: OutcomeCardScreen(summary: summary())),
+          ),
+        );
+        await tester.pump(const Duration(seconds: 2));
+        await tester.pump(const Duration(milliseconds: 100));
+
+        await tapAndSettle(tester, find.widgetWithText(StickerButton, 'Share'));
+
+        expect(fakeRenderer.renderCount, 1);
+        expect(find.byType(ShareTargetSheet), findsOneWidget, reason: 'iOS now shows the 3-tile sheet too');
+      } finally {
+        debugDefaultTargetPlatformOverride = null;
+      }
+    },
+  );
+
+  testWidgets(
+    'on a genuinely unsupported platform (e.g. macOS, with no native '
+    '`social_share` plugin registered on either side), Share skips '
+    'ShareTargetSheet entirely and goes straight to the "More…"/share_plus '
+    'path — regression coverage for the platform gate, now that it must '
+    'exclude iOS from this fallback too',
+    (tester) async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+      try {
+        final fakeRenderer = _FakeCardRenderer();
+        await tester.pumpWidget(
+          ProviderScope(
+            overrides: [
+              cardRendererProvider.overrideWithValue(fakeRenderer),
+              // If the gate regressed to include macOS in the sheet path,
+              // this would be consulted there too; leaving it wired to a
+              // real value would make the regression harder to see, so wire
+              // it to something that would visibly fail below if it were
+              // ever read.
               installedTargetsProvider.overrideWith(
-                (ref) async => throw StateError('must not be probed on a non-Android platform'),
+                (ref) async => throw StateError('must not be probed on an unsupported platform'),
               ),
               shareServiceProvider.overrideWithValue(const _StubShareService()),
             ],
@@ -307,7 +340,11 @@ void main() {
         await tapAndSettle(tester, find.widgetWithText(StickerButton, 'Share'));
 
         expect(fakeRenderer.renderCount, 1);
-        expect(find.byType(ShareTargetSheet), findsNothing, reason: 'no 3-tile sheet off-Android');
+        expect(
+          find.byType(ShareTargetSheet),
+          findsNothing,
+          reason: 'no 3-tile sheet on an unsupported platform',
+        );
         expect(find.text('✓ Shared'), findsOneWidget, reason: 'falls straight through to share_plus');
       } finally {
         debugDefaultTargetPlatformOverride = null;
