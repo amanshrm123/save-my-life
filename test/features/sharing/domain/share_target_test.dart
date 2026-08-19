@@ -114,4 +114,84 @@ void main() {
       },
     );
   });
+
+  group('shareTileStateFor', () {
+    test(
+      'BUG-REPORT SCENARIO: Instagram genuinely installed but fbAppId empty '
+      '-> notConfigured, NOT notInstalled (the exact bug being fixed: the '
+      'toast used to lie and say "isn\'t installed" when the app was really '
+      'there and just unconfigured)',
+      () {
+        expect(
+          shareTileStateFor(
+            ShareTarget.instagramStory,
+            const [ShareTarget.instagramStory],
+            fbAppId: '',
+          ),
+          ShareTileState.notConfigured,
+        );
+      },
+    );
+
+    test('Facebook: same bug-report scenario as Instagram', () {
+      expect(
+        shareTileStateFor(
+          ShareTarget.facebookStory,
+          const [ShareTarget.facebookStory],
+          fbAppId: '',
+        ),
+        ShareTileState.notConfigured,
+      );
+    });
+
+    test('Instagram/Facebook installed + configured -> ready', () {
+      expect(
+        shareTileStateFor(
+          ShareTarget.instagramStory,
+          const [ShareTarget.instagramStory],
+          fbAppId: '1234567890',
+        ),
+        ShareTileState.ready,
+      );
+      expect(
+        shareTileStateFor(
+          ShareTarget.facebookStory,
+          const [ShareTarget.facebookStory],
+          fbAppId: '1234567890',
+        ),
+        ShareTileState.ready,
+      );
+    });
+
+    test(
+      'Instagram/Facebook genuinely not installed -> notInstalled even with '
+      'a configured App ID (notConfigured only fires on an EMPTY App ID, '
+      'never masks a genuine not-installed state)',
+      () {
+        expect(
+          shareTileStateFor(ShareTarget.instagramStory, const [], fbAppId: '1234567890'),
+          ShareTileState.notInstalled,
+        );
+      },
+    );
+
+    test(
+      'WhatsApp has no notConfigured state — it needs no App ID, so it is '
+      'either ready or notInstalled regardless of fbAppId',
+      () {
+        expect(
+          shareTileStateFor(ShareTarget.whatsappStatus, const [], fbAppId: ''),
+          ShareTileState.notInstalled,
+        );
+        expect(
+          shareTileStateFor(
+            ShareTarget.whatsappStatus,
+            const [ShareTarget.whatsappStatus],
+            fbAppId: '',
+          ),
+          ShareTileState.ready,
+        );
+      },
+    );
+  });
 }

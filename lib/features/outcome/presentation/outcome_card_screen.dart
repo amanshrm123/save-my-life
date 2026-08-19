@@ -288,8 +288,9 @@ class _OutcomeCardScreenState extends ConsumerState<OutcomeCardScreen>
   ///    many tiles the player tries from one open sheet, since the same
   ///    [file] is reused for every tile tap inside `ShareTargetSheet`.
   ///  - Web (`kIsWeb`) skips the sheet entirely and keeps today's direct
-  ///    `ShareService` path unchanged (architecture §4.1 — Android intents
-  ///    don't exist there, and Instagram has no usable web story-composer).
+  ///    `ShareService` path unchanged (architecture §4.1 — neither Android
+  ///    intents nor iOS's pasteboard mechanism exist there, and Instagram
+  ///    has no usable web story-composer).
   ///  - `_sharing` now also covers "sheet is open": it isn't cleared until
   ///    `showShareTargetSheet` itself resolves (whenever/however the sheet
   ///    closes), so a double-tap on Share while the sheet is up is a no-op
@@ -302,12 +303,17 @@ class _OutcomeCardScreenState extends ConsumerState<OutcomeCardScreen>
       final file = await renderer.renderToFile(_cardKey);
       if (!mounted || file == null) return;
 
-      // The 3-tile sheet only makes sense on Android (it fires Android-only
-      // intents) — gate on the platform itself, not just `!kIsWeb`, so any
-      // other non-web target (none shipping today — iOS is deferred, no
-      // Apple ID) also honestly falls back to the plain share path instead
-      // of showing a sheet with all tiles permanently dimmed.
-      if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) {
+      // The 3-tile sheet fires native Android intents or the iOS pasteboard
+      // mechanism (`SocialSharePlugin.kt`/`SocialSharePlugin.swift`), both
+      // now implemented (iOS was previously deferred here — that's now
+      // stale) — gate on the platform itself, not just `!kIsWeb`, so any
+      // other, genuinely unsupported platform (e.g. macOS/Linux desktop,
+      // with no native `social_share` plugin registered at all) still
+      // honestly falls back to the plain share path instead of showing a
+      // sheet with all tiles permanently dimmed.
+      if (kIsWeb ||
+          (defaultTargetPlatform != TargetPlatform.android &&
+              defaultTargetPlatform != TargetPlatform.iOS)) {
         await _shareViaMoreSheet(file);
         return;
       }

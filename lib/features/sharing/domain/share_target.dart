@@ -42,28 +42,62 @@ extension ShareTargetLabels on ShareTarget {
 /// Meta's own "doesn't currently support sharing to Stories" error dialog.
 const String kFbAppId = String.fromEnvironment('FB_APP_ID');
 
-/// True when [target] should render in the sheet's dimmed/"not installed"
-/// visual state (design share-target-sheet-v1 §5): either a genuine
-/// not-installed target, OR (Instagram/Facebook only) when [kFbAppId] is
-/// empty at build time — architecture §9 treats an empty App ID identically
-/// to "not installed" from a UI perspective. The tile stays fully tappable
-/// either way (§5's load-bearing divergence from `StickerButton.enabled`);
-/// this only decides which value the caller passes as `dimmed:`.
+/// Why a tile renders in the sheet's dimmed/"not installed" visual state
+/// (design share-target-sheet-v1 §5), replacing a plain bool so the toast
+/// copy can tell the two genuinely different causes apart instead of
+/// collapsing both into a misleading "isn't installed" (bug fix: an
+/// Instagram/Facebook tile dimmed purely because [kFbAppId] is empty at
+/// build time used to show "Instagram isn't installed" even when Instagram
+/// genuinely IS installed — misleading to whoever's debugging a field
+/// report).
+enum ShareTileState {
+  /// Installed (or needs no App ID check) and ready to share to.
+  ready,
+
+  /// Not resolvable on-device — the genuine "isn't installed" case.
+  notInstalled,
+
+  /// Installed, but (Instagram/Facebook only) [kFbAppId] is empty at build
+  /// time — architecture §9's "empty App ID == not shareable" case, which is
+  /// NOT the same thing as the app being missing.
+  notConfigured,
+}
+
+/// Resolves [target]'s tile state (design share-target-sheet-v1 §5,
+/// architecture §9) — either a genuine not-installed target, OR
+/// (Instagram/Facebook only) [notConfigured] when [fbAppId] is empty at
+/// build time, checked BEFORE the installed-targets lookup so a genuinely
+/// installed Instagram/Facebook with no configured App ID reads as
+/// [notConfigured], never [notInstalled]. The tile stays fully tappable in
+/// every non-[ready] state (§5's load-bearing divergence from
+/// `StickerButton.enabled`); this only decides which copy/dimmed-visual the
+/// caller uses.
 ///
 /// [fbAppId] defaults to the compile-time [kFbAppId] constant for
 /// production call sites (unchanged behavior); it exists as a parameter
 /// purely so tests can pass a non-empty value directly to exercise the
-/// "App ID IS configured" un-dimmed Instagram/Facebook path (architecture
-/// §9 Phase 5b) without needing an actual `--dart-define` at test-run time.
-bool isShareTargetDimmed(
+/// "App ID IS configured" [ready] Instagram/Facebook path (architecture §9
+/// Phase 5b) without needing an actual `--dart-define` at test-run time.
+ShareTileState shareTileStateFor(
   ShareTarget target,
   List<ShareTarget> installedTargets, {
   String fbAppId = kFbAppId,
 }) {
   final needsAppId = target == ShareTarget.instagramStory || target == ShareTarget.facebookStory;
-  if (needsAppId && fbAppId.isEmpty) return true;
-  return !installedTargets.contains(target);
+  if (needsAppId && fbAppId.isEmpty) return ShareTileState.notConfigured;
+  return installedTargets.contains(target) ? ShareTileState.ready : ShareTileState.notInstalled;
 }
+
+/// True when [target] should render in the sheet's dimmed visual state
+/// (design share-target-sheet-v1 §5) — a thin backward-compatible wrapper
+/// over [shareTileStateFor] for call sites/tests that only care about the
+/// dimmed/not-dimmed visual, not which of the two non-[ShareTileState.ready]
+/// reasons caused it.
+bool isShareTargetDimmed(
+  ShareTarget target,
+  List<ShareTarget> installedTargets, {
+  String fbAppId = kFbAppId,
+}) => shareTileStateFor(target, installedTargets, fbAppId: fbAppId) != ShareTileState.ready;
 
 /// Parses the raw wire-format strings the native `installedTargets()` probe
 /// returns (architecture §10 — one `String` per resolvable target,

@@ -120,16 +120,49 @@ void main() {
   );
 
   testWidgets(
-    'a dimmed tile (Instagram, always dimmed with no FB_APP_ID in test runs) '
-    'is still tappable, shows the "isn\'t installed" toast, and does NOT '
-    'dismiss the sheet',
+    'a dimmed tile (Instagram, dimmed because FB_APP_ID is empty in test '
+    'runs — a "not configured" state, checked before install state) is '
+    'still tappable, shows the "not set up" toast (NOT the "isn\'t '
+    'installed" copy — that would be the exact bug this state split fixes), '
+    'and does NOT dismiss the sheet',
     (tester) async {
-      await openSheet(tester, installedTargets: const []);
+      // Even with Instagram reported installed, an empty FB_APP_ID makes it
+      // read as notConfigured, not notInstalled — `kFbAppId` is a
+      // compile-time const that is always empty under `flutter test` (no
+      // `--dart-define`), so this is the only dimmed state this widget-level
+      // test can ever exercise for Instagram/Facebook; the "genuinely not
+      // installed with a configured App ID" case is covered at the unit
+      // level in `share_target_test.dart` via the optional `fbAppId` param.
+      await openSheet(
+        tester,
+        installedTargets: const [ShareTarget.instagramStory],
+      );
 
       await tester.tap(find.text('Instagram'));
       await tester.pump();
 
-      expect(find.text("Instagram isn't installed"), findsOneWidget);
+      expect(find.text("Instagram sharing isn't set up yet"), findsOneWidget);
+      expect(find.text("Instagram isn't installed"), findsNothing);
+      expect(
+        find.byType(ShareTargetSheet),
+        findsOneWidget,
+        reason: 'sheet must stay open',
+      );
+      expect(sheetSettled, isFalse);
+    },
+  );
+
+  testWidgets(
+    'a dimmed WhatsApp tile (genuinely not installed — WhatsApp has no '
+    'notConfigured state, it needs no App ID) shows the "isn\'t installed" '
+    'toast, and does NOT dismiss the sheet',
+    (tester) async {
+      await openSheet(tester, installedTargets: const []);
+
+      await tester.tap(find.text('WhatsApp'));
+      await tester.pump();
+
+      expect(find.text("WhatsApp isn't installed"), findsOneWidget);
       expect(
         find.byType(ShareTargetSheet),
         findsOneWidget,
@@ -299,14 +332,18 @@ void main() {
       await openSheet(tester, installedTargets: const []);
 
       final moreBefore = tester.getTopLeft(find.text('More…'));
-      final rowBefore = tester.getTopLeft(find.text('Instagram'));
+      // WhatsApp specifically (not Instagram/Facebook): its dimmed copy is
+      // purely install-state driven with no notConfigured branch, so this
+      // layout-focused test doesn't also have to track the
+      // notConfigured-vs-notInstalled copy split covered elsewhere.
+      final rowBefore = tester.getTopLeft(find.text('WhatsApp'));
 
-      await tester.tap(find.text('Instagram'));
+      await tester.tap(find.text('WhatsApp'));
       await tester.pump();
-      expect(find.text("Instagram isn't installed"), findsOneWidget);
+      expect(find.text("WhatsApp isn't installed"), findsOneWidget);
 
       final moreAfter = tester.getTopLeft(find.text('More…'));
-      final rowAfter = tester.getTopLeft(find.text('Instagram'));
+      final rowAfter = tester.getTopLeft(find.text('WhatsApp'));
       expect(
         moreAfter,
         moreBefore,
@@ -320,7 +357,7 @@ void main() {
 
       // And it clears again with no lingering shift once it auto-dismisses.
       await tester.pump(const Duration(milliseconds: 2500));
-      expect(find.text("Instagram isn't installed"), findsNothing);
+      expect(find.text("WhatsApp isn't installed"), findsNothing);
       expect(tester.getTopLeft(find.text('More…')), moreBefore);
     },
   );

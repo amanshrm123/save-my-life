@@ -20,6 +20,14 @@ import java.io.File
  * Kotlin"), and deliberately retains nothing beyond a single method call:
  * no listener, no `BroadcastReceiver`, no callback registration — one-shot
  * `startActivity` only (architecture §11).
+ *
+ * [context] is `MainActivity` itself (see `MainActivity.configureFlutterEngine`),
+ * not `applicationContext` — a latent Activity-retention risk in general,
+ * but bounded today: `FlutterActivity` owns this plugin instance's entire
+ * lifetime 1:1 (a fresh `SocialSharePlugin` per `configureFlutterEngine`
+ * call, never cached/reused across engine attaches), so this instance never
+ * outlives the Activity it holds. Revisit if this plugin is ever registered
+ * against a long-lived cached `FlutterEngine` instead.
  */
 class SocialSharePlugin(private val context: Context) : MethodChannel.MethodCallHandler {
 
@@ -76,6 +84,15 @@ class SocialSharePlugin(private val context: Context) : MethodChannel.MethodCall
     }
 
     /**
+     * Plain package-installed check — deliberately NOT `resolveActivity`
+     * (see the WhatsApp branch of [installedTargets] for why): a simple
+     * `getPackageInfo` lookup, unaffected by Android 12+ per-app web-link
+     * domain approval.
+     */
+    private fun isPackageInstalled(pkg: String): Boolean =
+        runCatching { context.packageManager.getPackageInfo(pkg, 0) }.isSuccess
+
+    /**
      * `resolveActivity` returns null both when the target app is genuinely
      * absent from the device AND when its package is missing from this
      * manifest's `<queries>` block (architecture §12 code-reviewer flag 8)
@@ -85,6 +102,18 @@ class SocialSharePlugin(private val context: Context) : MethodChannel.MethodCall
      */
     private fun installedTargets(): List<String> {
         return ALL_TARGETS.filter { target ->
+            if (target == TARGET_WHATSAPP) {
+                // NOT `resolveActivity` against `baseIntent`'s
+                // `https://wa.me/status` web intent: since Android 12, web
+                // intents are subject to per-app domain approval and can
+                // resolve to nothing even when WhatsApp is installed (the
+                // user can disable "Open supported links" for WhatsApp in
+                // system settings) — Meta's own official sample
+                // (`fbsamples/whatsapp_status_api_android`) never calls
+                // `resolveActivity` for this at all. A plain
+                // package-installed check is the only reliable probe here.
+                return@filter isPackageInstalled(PKG_WHATSAPP)
+            }
             val intent = baseIntent(target) ?: return@filter false
             // Plain `0`, NOT `MATCH_DEFAULT_ONLY` (architecture §2.1, Meta's
             // own sample code): `MATCH_DEFAULT_ONLY` additionally requires
@@ -116,9 +145,16 @@ class SocialSharePlugin(private val context: Context) : MethodChannel.MethodCall
             return
         }
 
-        // Plain `0` here too — see the matching comment in installedTargets().
-        val resolved = context.packageManager.resolveActivity(intent, 0)
-        if (resolved == null) {
+        // Same split as installedTargets(): WhatsApp's presence is checked
+        // via plain package-installed (never `resolveActivity` against the
+        // `https://wa.me/status` web intent — see that function's comment),
+        // Instagram/Facebook keep the plain `0` `resolveActivity` check.
+        val stillInstalled = if (target == TARGET_WHATSAPP) {
+            isPackageInstalled(packageName)
+        } else {
+            context.packageManager.resolveActivity(intent, 0) != null
+        }
+        if (!stillInstalled) {
             // Defence-in-depth only — `ShareTargetSheet` already pre-checks
             // install state before letting a tile reach here at all. Only
             // reachable via a race (app uninstalled between the probe and
@@ -144,16 +180,11 @@ class SocialSharePlugin(private val context: Context) : MethodChannel.MethodCall
         // Composition: the outcome card PNG is passed as the STICKER layer
         // over a tier-colored background gradient, never as the background
         // asset itself (architecture §3) — same shape across all 3 targets.
-        //
-        // NOTE (architecture §3, verify-during-implementation): sticker-only
-        // sharing (no background asset) is documented as using
-        // `type = "image/*"` rather than `setDataAndType(uri, ...)` for
-        // Instagram/Facebook — medium confidence on this specific detail,
-        // not verifiable without a device with these apps installed. If
-        // sticker-only misbehaves on a real device, the documented fallback
-        // is background-mode (`setDataAndType` with the same uri) using the
-        // same background colors for letterbox fill; not implemented here
-        // per the architecture doc's own "don't block on it."
+        // Sticker-only sharing (no background asset) uses `type = "image/*"`
+        // rather than `setDataAndType(uri, ...)` for Instagram/Facebook —
+        // confirmed correct against `react-native-share`'s
+        // `InstagramStoriesShare.java`/`FacebookStoriesShare.java`, which use
+        // exactly this in production.
         when (target) {
             TARGET_INSTAGRAM -> {
                 intent.putExtra("interactive_asset_uri", uri)
@@ -168,33 +199,28 @@ class SocialSharePlugin(private val context: Context) : MethodChannel.MethodCall
                 intent.putExtra("com.facebook.platform.extra.APPLICATION_ID", fbAppId)
             }
             TARGET_WHATSAPP -> {
-                // flutter-developer note (architecture §2.3): `share_type`/
-                // `foreground_media`/`source_app_package_name` spelling
-                // matches the WhatsApp FAQ + fbsamples/whatsapp_status_api_android
-                // sample as of this writing; the action/URI/package are the
-                // high-confidence part, these three extra keys are the ones
-                // to re-verify against the live FAQ page if WhatsApp Status
-                // sharing misbehaves on a real device.
-                //
                 // Sticker-only, no background asset — matches Instagram/
                 // Facebook's shape (architecture §3: the card PNG is ALWAYS
                 // the sticker/foreground layer, never the background asset,
                 // for all 3 targets). `EXTRA_STREAM` (background media) is
-                // deliberately NOT set here: WhatsApp's documented Status
-                // extras (§2.3's findings table) have no equivalent to
-                // Instagram/Facebook's `top_background_color`/
-                // `bottom_background_color` solid-fill extras — only a
-                // background *image* mechanism (`EXTRA_STREAM`), which isn't
-                // what we want (that's exactly the "both background AND
-                // sticker" double-asset bug this comment replaces). Accepted
-                // degradation: WhatsApp shows the sticker on its own
-                // default/plain Status background rather than the tier
-                // gradient Instagram/Facebook get — there is no known
-                // WhatsApp Status extra for a solid/gradient fill to send
-                // instead. Revisit if WhatsApp's API adds one.
+                // deliberately NOT set here — that would be the "both
+                // background AND sticker" double-asset bug this branch
+                // avoids.
+                //
+                // WhatsApp DOES support a gradient-fill background, matching
+                // Instagram/Facebook's treatment above — sourced from
+                // `fbsamples/whatsapp_status_api_android`'s `MainActivity.kt`.
+                // Its extras just use a different color format: `#AARRGGBB`
+                // (8 hex digits, alpha first) rather than Instagram/
+                // Facebook's 6-digit `#RRGGBB`, hence [toArgbHex] below —
+                // done here, not on the Dart side, so `#RRGGBB` stays the one
+                // canonical wire format across the whole channel.
                 intent.putExtra("share_type", "SHARE_TO_STATUS")
                 intent.putExtra("source_app_package_name", context.packageName)
+                intent.putExtra("source_app_name", "Stay Alive")
                 intent.putExtra("foreground_media", uri)
+                intent.putExtra("color_gradient_top", toArgbHex(topColor))
+                intent.putExtra("color_gradient_bottom", toArgbHex(bottomColor))
             }
         }
 
@@ -226,6 +252,19 @@ class SocialSharePlugin(private val context: Context) : MethodChannel.MethodCall
             result.error("ACTIVITY_NOT_FOUND", e.message, null)
         }
     }
+
+    /**
+     * Widens a `#RRGGBB` string (the one canonical wire-format color this
+     * channel uses — see `share_composition.dart`'s `shareColorHex`) to
+     * WhatsApp's `#AARRGGBB` gradient-extra format by prefixing a
+     * fully-opaque alpha. Instagram/Facebook's `top_background_color`/
+     * `bottom_background_color` extras stay plain 6-digit `#RRGGBB`; only
+     * WhatsApp's `color_gradient_top`/`color_gradient_bottom` extras need
+     * this 8-digit alpha-first form (`fbsamples/whatsapp_status_api_android`).
+     * Widening happens here, not on the Dart side, so the wire format itself
+     * stays platform-neutral.
+     */
+    private fun toArgbHex(rrggbb: String): String = "#FF${rrggbb.removePrefix("#")}"
 
     /**
      * The most recent (packageName, uri) pair granted via [shareToStory],

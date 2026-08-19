@@ -107,14 +107,24 @@ class _ShareTargetSheetState extends ConsumerState<ShareTargetSheet> {
     });
   }
 
-  String _notInstalledCopyFor(ShareTarget target) {
+  /// Copy for a dimmed-tile tap (design §8.2 table) — branches on
+  /// [ShareTileState] so "not configured" (Instagram/Facebook, empty
+  /// `kFbAppId`) gets its own honest copy instead of reusing "isn't
+  /// installed" (the exact bug this state split fixes). WhatsApp never has a
+  /// [ShareTileState.notConfigured] state (it needs no App ID), so its arm
+  /// only ever needs [ShareTileState.notInstalled] handling.
+  String _dimmedCopyFor(ShareTarget target, ShareTileState state) {
     switch (target) {
       case ShareTarget.instagramStory:
-        return kToastInstagramNotInstalled;
+        return state == ShareTileState.notConfigured
+            ? kToastInstagramNotConfigured
+            : kToastInstagramNotInstalled;
       case ShareTarget.whatsappStatus:
         return kToastWhatsAppNotInstalled;
       case ShareTarget.facebookStory:
-        return kToastFacebookNotInstalled;
+        return state == ShareTileState.notConfigured
+            ? kToastFacebookNotConfigured
+            : kToastFacebookNotInstalled;
     }
   }
 
@@ -132,9 +142,11 @@ class _ShareTargetSheetState extends ConsumerState<ShareTargetSheet> {
   Future<void> _onTileTap(ShareTarget target) async {
     // Dimmed tiles stay tappable (design §5's load-bearing divergence from
     // `StickerButton.enabled`) — this is a pre-check, never dismisses the
-    // sheet, always shows the "isn't installed" copy (design §8.2 table).
-    if (isShareTargetDimmed(target, widget.installedTargets)) {
-      _showToast(_notInstalledCopyFor(target));
+    // sheet, always shows copy matching the actual reason it's dimmed
+    // (design §8.2 table).
+    final state = shareTileStateFor(target, widget.installedTargets);
+    if (state != ShareTileState.ready) {
+      _showToast(_dimmedCopyFor(target, state));
       return;
     }
 
@@ -266,10 +278,7 @@ class _ShareTargetSheetState extends ConsumerState<ShareTargetSheet> {
                           for (final target in ShareTarget.values)
                             _ShareTile(
                               target: target,
-                              dimmed: isShareTargetDimmed(
-                                target,
-                                widget.installedTargets,
-                              ),
+                              dimmed: isShareTargetDimmed(target, widget.installedTargets),
                               onTap: () => _onTileTap(target),
                             ),
                         ],
@@ -290,12 +299,20 @@ class _ShareTargetSheetState extends ConsumerState<ShareTargetSheet> {
                   // hiding, or the tiles above it visibly jump on every toast
                   // appear/dismiss. `Positioned` sits above "More…" without
                   // participating in the Column's intrinsic sizing.
+                  //
+                  // `IgnorePointer` (tester flag): the toast can visually
+                  // overlap the tile row's lower labels while it's showing,
+                  // and `ToastPill` currently has no `GestureDetector` of its
+                  // own so a tap there already falls through to the tile
+                  // underneath — this makes that click-through guaranteed by
+                  // design rather than incidental on `ToastPill` staying
+                  // gesture-less.
                   if (_toastText != null)
                     Positioned(
                       left: 0,
                       right: 0,
                       bottom: 40,
-                      child: ToastPill(text: _toastText!),
+                      child: IgnorePointer(child: ToastPill(text: _toastText!)),
                     ),
                 ],
               ),

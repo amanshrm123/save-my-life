@@ -22,3 +22,11 @@ const String kToastCouldNotOpenFacebook = "Couldn't open Facebook";
 const String kToastInstagramNotInstalled = "Instagram isn't installed";
 const String kToastWhatsAppNotInstalled = "WhatsApp isn't installed";
 const String kToastFacebookNotInstalled = "Facebook isn't installed";
+
+/// Pre-checked not-configured (dimmed tile tap, Instagram/Facebook only —
+/// `kFbAppId` empty at build time). Deliberately distinct copy from the
+/// "isn't installed" strings above: this is the exact bug being fixed —
+/// don't reuse "isn't installed" for this case, the app genuinely may be
+/// installed.
+const String kToastInstagramNotConfigured = "Instagram sharing isn't set up yet";
+const String kToastFacebookNotConfigured = "Facebook sharing isn't set up yet";
