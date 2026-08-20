@@ -1,7 +1,7 @@
 package com.timingtap.timing_tap
 
+import android.app.Activity
 import android.content.ActivityNotFoundException
-import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import androidx.core.content.FileProvider
@@ -18,18 +18,25 @@ import java.io.File
  *
  * Deliberately tiny (architecture §5 point 5: "roughly 120 lines of
  * Kotlin"), and deliberately retains nothing beyond a single method call:
- * no listener, no `BroadcastReceiver`, no callback registration — one-shot
- * `startActivity` only (architecture §11).
+ * no `BroadcastReceiver`, no callback registration — one-shot only
+ * (architecture §11). Instagram/Facebook fire via plain `startActivity`;
+ * WhatsApp is the one exception (see the `shareToStory` WhatsApp branch's
+ * own doc comment) — it needs `startActivityForResult`, but still no
+ * `onActivityResult` override anywhere, since the result itself is never
+ * consumed.
  *
  * [context] is `MainActivity` itself (see `MainActivity.configureFlutterEngine`),
- * not `applicationContext` — a latent Activity-retention risk in general,
- * but bounded today: `FlutterActivity` owns this plugin instance's entire
- * lifetime 1:1 (a fresh `SocialSharePlugin` per `configureFlutterEngine`
- * call, never cached/reused across engine attaches), so this instance never
- * outlives the Activity it holds. Revisit if this plugin is ever registered
- * against a long-lived cached `FlutterEngine` instead.
+ * typed as `Activity` rather than the plain `Context` this class used before
+ * WhatsApp's `startActivityForResult` requirement (an `Activity`-only API)
+ * came up — not `applicationContext` either way — a latent Activity-retention
+ * risk in general, but bounded today: `FlutterActivity` owns this plugin
+ * instance's entire lifetime 1:1 (a fresh `SocialSharePlugin` per
+ * `configureFlutterEngine` call, never cached/reused across engine attaches),
+ * so this instance never outlives the Activity it holds. Revisit if this
+ * plugin is ever registered against a long-lived cached `FlutterEngine`
+ * instead.
  */
-class SocialSharePlugin(private val context: Context) : MethodChannel.MethodCallHandler {
+class SocialSharePlugin(private val context: Activity) : MethodChannel.MethodCallHandler {
 
     companion object {
         const val CHANNEL = "com.timingtap.timing_tap/social_share"
@@ -37,6 +44,12 @@ class SocialSharePlugin(private val context: Context) : MethodChannel.MethodCall
         private const val PKG_INSTAGRAM = "com.instagram.android"
         private const val PKG_WHATSAPP = "com.whatsapp"
         private const val PKG_FACEBOOK = "com.facebook.katana"
+
+        // Arbitrary, only-ever-used-here request code for the WhatsApp
+        // startActivityForResult call below — no onActivityResult is ever
+        // registered to consume it (see that call site's comment), so the
+        // actual value doesn't matter beyond being a valid non-negative int.
+        private const val WHATSAPP_STATUS_REQUEST_CODE = 4201
 
         // Wire-format target names — must match `ShareTarget.name` verbatim
         // on the Dart side (`lib/features/sharing/domain/share_target.dart`).
@@ -246,7 +259,26 @@ class SocialSharePlugin(private val context: Context) : MethodChannel.MethodCall
         pendingGrant = packageName to uri
 
         try {
-            context.startActivity(intent)
+            if (target == TARGET_WHATSAPP) {
+                // WhatsApp's Status deep-link expects to be launched via
+                // startActivityForResult, not a plain startActivity — per
+                // Meta's own official sample
+                // (fbsamples/whatsapp_status_api_android's
+                // WhatsappStatusProxyActivity doc comment: "WhatsApp's
+                // Status deep-link often expects to be started via
+                // startActivityForResult. The System Share Sheet (via
+                // PendingIntent) cannot do this directly"). Without it,
+                // WhatsApp opens to its normal chat list instead of landing
+                // on the Status composer — the exact bug this fixes. No
+                // result is ever consumed (onActivityResult is deliberately
+                // not overridden anywhere in this Activity for this call);
+                // only the FOR-RESULT *semantics* of the launch matter here,
+                // never the actual result value.
+                @Suppress("DEPRECATION")
+                context.startActivityForResult(intent, WHATSAPP_STATUS_REQUEST_CODE)
+            } else {
+                context.startActivity(intent)
+            }
             result.success(true)
         } catch (e: ActivityNotFoundException) {
             result.error("ACTIVITY_NOT_FOUND", e.message, null)
