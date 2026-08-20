@@ -1,5 +1,6 @@
 {
   "SENTRY_DSN": "",
   "SENTRY_ENV": "development",
-  "SENTRY_RELEASE": "1.0.0+1"
+  "SENTRY_RELEASE": "1.0.0+1",
+  "FB_APP_ID": ""
 }
