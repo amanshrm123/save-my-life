@@ -99,17 +99,18 @@ class BannerAdSlot extends ConsumerWidget {
                 // device *size* changes (a real rotation/window resize),
                 // never on an unrelated MediaQuery change elsewhere (text
                 // scale, keyboard inset, padding, ...) — so this read is
-                // NOT the source of excess rebuild/reload churn. That
-                // churn, if it happens, comes from inside `MaxAdView`
-                // itself: its own `_MaxAdViewState.build()` reads the
-                // full, un-scoped `MediaQuery.of(context).size` and pairs
-                // that with a `FutureBuilder` whose `future` is
-                // recomputed fresh on every rebuild — briefly returning to
-                // `ConnectionState.waiting` (which unmounts the platform
-                // view) before resolving again (remounting it, issuing a
-                // fresh ad load). That's package-internal behavior, not
-                // fixable from this file — confirmed by reading
-                // `max_ad_view.dart` directly rather than assumed.
+                // not a source of excess rebuild/reload churn. An earlier
+                // version of this comment additionally claimed
+                // `MaxAdView`'s own internal `FutureBuilder` briefly
+                // unmounts and remounts the platform view (and thus
+                // reloads the ad) on every rebuild — confirmed FALSE by
+                // reading `max_ad_view.dart` and `AsyncSnapshot.inState`
+                // directly: `didUpdateWidget` calls
+                // `_snapshot.inState(ConnectionState.none)`, which
+                // preserves the existing `data`, so `hasData` stays true
+                // and the platform-view element is updated in place, not
+                // recreated. No unmount, no reload — this prop toggling
+                // (or `isAutoRefreshEnabled` above) is genuinely cheap.
                 width: MediaQuery.sizeOf(context).width,
                 // Matches the outer `SizedBox`'s own `kHeight` exactly —
                 // this used to (incorrectly) pass `kHeight - 1`, but the

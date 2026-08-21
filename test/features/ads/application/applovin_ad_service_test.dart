@@ -75,6 +75,12 @@ void main() {
         isFalse,
         reason: 'only handleInterstitialHidden() should resolve `shown`',
       );
+
+      // Cleanup: `handleInterstitialDisplayed()` above rearms a real
+      // (non-fake-time) 5-minute safety-net `Timer` against `completer`
+      // (fix 9) — resolve it now via the realistic next lifecycle event so
+      // no live Timer is left pending past this test.
+      service.handleInterstitialHidden();
     },
   );
 
@@ -196,17 +202,16 @@ void main() {
   );
 
   test(
-    'REGRESSION: a late native callback arriving AFTER the 8s timeout has '
-    'already resolved the caller is safely ignored — no double-completion, '
-    'no throw, and it does not resurrect/clear an unrelated later call\'s '
-    'pending slot',
+    'REGRESSION: a late native callback arriving AFTER the pre-display '
+    'timeout has already resolved the caller is safely ignored — no '
+    'double-completion, no throw, and it does not resurrect/clear an '
+    'unrelated later call\'s pending slot',
     () {
       fakeAsync((async) {
         final completer = Completer<InterstitialResult>();
-        service.debugSetPendingInterstitial(completer);
 
         InterstitialResult? resolved;
-        service.debugAwaitPendingWithTimeout(completer).then((r) => resolved = r);
+        service.debugArmPreDisplayTimeout(completer).then((r) => resolved = r);
 
         async.elapse(const Duration(seconds: 9));
         expect(resolved, InterstitialResult.failedToLoad);
@@ -220,30 +225,32 @@ void main() {
         expect(resolved, InterstitialResult.failedToLoad);
         expect(service.debugHasPendingInterstitial, isFalse);
 
-        // The original completer itself is simply left forever un-
-        // completed (nothing re-derives a value from it) — not an error
-        // state, just an orphaned object that becomes eligible for GC.
-        expect(completer.isCompleted, isFalse);
+        // Unlike the old `Future.timeout()`-wrapped version, the timeout
+        // now completes THIS completer directly (fix 9's `_armShowTimeout`)
+        // rather than leaving it permanently orphaned behind a separate
+        // wrapper Future — so it's genuinely resolved, not just GC-eligible.
+        expect(completer.isCompleted, isTrue);
       });
     },
   );
 
   test(
     'REGRESSION: a showInterstitial() attempt with no real native callback '
-    'ever firing resolves failedToLoad after the timeout, instead of '
-    'wedging the caller forever (fix 5) — also clears the pending slot so '
-    'a later call isn\'t permanently bricked for the rest of the session',
+    'ever firing resolves failedToLoad after the pre-display timeout, '
+    'instead of wedging the caller forever (fix 5) — also clears the '
+    'pending slot so a later call isn\'t permanently bricked for the rest '
+    'of the session',
     () {
       fakeAsync((async) {
         final completer = Completer<InterstitialResult>();
-        service.debugSetPendingInterstitial(completer);
+        service.debugArmPreDisplayTimeout(completer);
         expect(service.debugHasPendingInterstitial, isTrue);
 
         InterstitialResult? resolved;
-        service.debugAwaitPendingWithTimeout(completer).then((r) => resolved = r);
+        completer.future.then((r) => resolved = r);
 
         async.elapse(const Duration(seconds: 7));
-        expect(resolved, isNull, reason: 'must not resolve before the 8s timeout');
+        expect(resolved, isNull, reason: 'must not resolve before the 8s pre-display timeout');
 
         async.elapse(const Duration(seconds: 2));
         expect(resolved, InterstitialResult.failedToLoad);
@@ -252,6 +259,73 @@ void main() {
           isFalse,
           reason: 'the timeout must clear _pendingInterstitial, not just resolve its own Future',
         );
+      });
+    },
+  );
+
+  test(
+    'REGRESSION (fix 9): handleInterstitialDisplayed() rearms the timeout '
+    'to the much-longer post-display window — a real ad that is still '
+    'on screen past the old 8s pre-display mark is NOT wrongly reported as '
+    'failedToLoad out from under the player watching it',
+    () {
+      fakeAsync((async) {
+        final completer = Completer<InterstitialResult>();
+        service.debugArmPreDisplayTimeout(completer);
+
+        InterstitialResult? resolved;
+        completer.future.then((r) => resolved = r);
+
+        // The overlay appears just before the old single-timeout design
+        // would have fired.
+        async.elapse(const Duration(seconds: 7));
+        service.handleInterstitialDisplayed();
+
+        // Well past the original 8s mark — under the old (buggy) single
+        // timeout this would already have resolved failedToLoad while the
+        // ad was still genuinely on screen. It must not have.
+        async.elapse(const Duration(seconds: 5));
+        expect(
+          resolved,
+          isNull,
+          reason:
+              'the pre-display timeout must have been cancelled/replaced by '
+              'handleInterstitialDisplayed, not left running through the '
+              "player's actual viewing time",
+        );
+        expect(service.debugHasPendingInterstitial, isTrue);
+
+        // The player genuinely finishes watching and closes the ad —
+        // resolves normally via the real signal, not the safety-net timer.
+        // `flushMicrotasks()` is needed here (unlike after `async.elapse`
+        // elsewhere in this file, which flushes as part of advancing fake
+        // time): this call is synchronous with no time elapsing, so the
+        // `.then()` callback above wouldn't otherwise have run yet.
+        service.handleInterstitialHidden();
+        async.flushMicrotasks();
+        expect(resolved, InterstitialResult.shown);
+      });
+    },
+  );
+
+  test(
+    'REGRESSION (fix 9): the post-display safety net still fires if '
+    'onAdHidden is genuinely never received, instead of wedging the caller '
+    'forever',
+    () {
+      fakeAsync((async) {
+        final completer = Completer<InterstitialResult>();
+        service.debugArmPostDisplayTimeout(completer);
+
+        InterstitialResult? resolved;
+        completer.future.then((r) => resolved = r);
+
+        async.elapse(const Duration(minutes: 4));
+        expect(resolved, isNull, reason: 'must not resolve before the 5-minute post-display timeout');
+
+        async.elapse(const Duration(minutes: 2));
+        expect(resolved, InterstitialResult.failedToLoad);
+        expect(service.debugHasPendingInterstitial, isFalse);
       });
     },
   );

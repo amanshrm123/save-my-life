@@ -657,12 +657,14 @@ void main() {
         // `PlayLoopScreen`'s own countdown (`RunConfig.defaults`:
         // 3 steps * 700ms) schedules a real `Timer` chain on mount
         // (`countdown_view.dart`) — flush it explicitly (mirrors
-        // `play_loop_screen_test.dart`'s own `pumpPastCountdown` helper)
-        // before `pumpAndSettle`, which alone isn't reliable for a
-        // periodic-timer-driven countdown and would otherwise leave a
-        // pending `Timer` at test teardown.
+        // `play_loop_screen_test.dart`'s own `pumpPastCountdown` helper).
+        // Deliberately a bounded pump, not `pumpAndSettle()`: once on
+        // PlayLoopScreen, `LifeAvatar`'s continuous 60fps wave animation
+        // (juice spec effect 1, see `pumpPastCountdown`'s own doc comment
+        // in `play_loop_screen_test.dart`) never stops scheduling frames,
+        // so `pumpAndSettle()` here would hang until it times out.
         await tester.pump(const Duration(milliseconds: 2200));
-        await tester.pumpAndSettle();
+        await tester.pump(const Duration(milliseconds: 100));
 
         expect(
           find.byType(InterstitialScreen),
@@ -699,6 +701,49 @@ void main() {
         await tester.pump(const Duration(milliseconds: 200));
 
         expect(find.byType(InterstitialScreen), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'REGRESSION (fix 9): tapping Home while an "Again" interstitial call '
+      'is still in flight is a no-op — without this, the real ad overlay '
+      'could land on top of Home once the call resolves and displays, '
+      'confusing even though it could never crash (_onAgain\'s own '
+      '!mounted check already prevented that)',
+      (tester) async {
+        final s = summary();
+        final adService = _SequencedAdService(rendersOwnUi: false);
+        await tester.pumpWidget(
+          harness(s, overrides: [adServiceProvider.overrideWithValue(adService)]),
+        );
+        await tester.pump();
+        await makeInterstitialDue(tester);
+        await tester.pump(const Duration(seconds: 2));
+        await tester.pump(const Duration(milliseconds: 100));
+
+        await tester.tap(find.widgetWithText(StickerButton, 'Again'));
+        await tester.pump();
+        expect(adService.callCount, 1, reason: 'the "Again" call is now genuinely in flight');
+
+        // Tap Home while that call is still unresolved.
+        await tester.tap(find.text('Home'));
+        await tester.pump();
+
+        expect(
+          find.byType(OutcomeCardScreen),
+          findsOneWidget,
+          reason: '_navigating must block Home from popping away mid-call',
+        );
+
+        // Resolving the in-flight call afterward still completes
+        // normally — proves the guard blocks the tap rather than
+        // corrupting `_onAgain`'s own state.
+        adService.resolveCall(0, InterstitialResult.shown);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
+        await tester.pump(const Duration(milliseconds: 2200));
+        await tester.pump(const Duration(milliseconds: 100));
+        expect(find.byType(PlayLoopScreen), findsOneWidget);
       },
     );
   });
@@ -743,14 +788,16 @@ void main() {
         await tester.tap(find.text('Retry'));
         await tester.pump();
         adService.resolveCall(1, InterstitialResult.shown);
-        // Several smaller pumps (not one large jump) to reliably drain the
+        // Several smaller pumps (not one large jump, and not
+        // `pumpAndSettle()` — `LifeAvatar`'s continuous wave animation on
+        // PlayLoopScreen never lets that settle) to reliably drain the
         // resulting pushReplacement's own transition/route-settling steps,
         // mirroring this file's established `pumpPastCountdown`-style
         // approach elsewhere for timer/animation-chained navigation.
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 100));
         await tester.pump(const Duration(milliseconds: 2200));
-        await tester.pumpAndSettle();
+        await tester.pump(const Duration(milliseconds: 100));
 
         expect(
           find.byType(InterstitialScreen),
@@ -802,12 +849,13 @@ void main() {
         );
 
         // Resolving the one genuine in-flight call still completes the
-        // flow normally.
+        // flow normally. Bounded pumps, not `pumpAndSettle()` — see the
+        // continuous-wave-animation note above.
         adService.resolveCall(1, InterstitialResult.shown);
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 100));
         await tester.pump(const Duration(milliseconds: 2200));
-        await tester.pumpAndSettle();
+        await tester.pump(const Duration(milliseconds: 100));
 
         expect(find.byType(PlayLoopScreen), findsOneWidget);
       },
@@ -852,12 +900,64 @@ void main() {
         await tester.tap(find.text('Retry'));
         await tester.pump();
         expect(adService.callCount, 3, reason: 'the third genuine tap must reach the service');
+        // Bounded pumps, not `pumpAndSettle()` — see the continuous-wave
+        // -animation note above.
         adService.resolveCall(2, InterstitialResult.shown);
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 100));
         await tester.pump(const Duration(milliseconds: 2200));
-        await tester.pumpAndSettle();
+        await tester.pump(const Duration(milliseconds: 100));
 
+        expect(find.byType(PlayLoopScreen), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'REGRESSION (fix 9): tapping "Maybe later" while a Retry call is '
+      'still in flight is a no-op — without this, PlayLoopScreen would be '
+      'armed (countdown/haptics started) and then have the real ad land on '
+      'top of the run once the in-flight call resolves and displays',
+      (tester) async {
+        final s = summary();
+        final adService = _SequencedAdService(rendersOwnUi: false);
+        await tester.pumpWidget(
+          harness(s, overrides: [adServiceProvider.overrideWithValue(adService)]),
+        );
+        await tester.pump();
+        await makeInterstitialDue(tester);
+        await tester.pump(const Duration(seconds: 2));
+        await tester.pump(const Duration(milliseconds: 100));
+
+        // "Again"'s first call fails -> AdFailedView.
+        await tester.tap(find.widgetWithText(StickerButton, 'Again'));
+        await tester.pump();
+        adService.resolveCall(0, InterstitialResult.failedToLoad);
+        await tester.pump();
+        await tester.pumpAndSettle();
+        expect(find.byType(AdFailedView), findsOneWidget);
+
+        // Retry starts a genuinely in-flight second call.
+        await tester.tap(find.text('Retry'));
+        await tester.pump();
+        expect(adService.callCount, 2);
+
+        // "Maybe later" tapped while that call is still pending must be a
+        // no-op, not navigate to PlayLoopScreen.
+        await tester.tap(find.text('Maybe later'));
+        await tester.pump();
+        expect(
+          find.byType(PlayLoopScreen),
+          findsNothing,
+          reason: 'the _retrying guard must block "Maybe later" while Retry is in flight',
+        );
+        expect(find.byType(AdFailedView), findsOneWidget);
+
+        // Resolving the in-flight call afterward still completes normally.
+        adService.resolveCall(1, InterstitialResult.shown);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
+        await tester.pump(const Duration(milliseconds: 2200));
+        await tester.pump(const Duration(milliseconds: 100));
         expect(find.byType(PlayLoopScreen), findsOneWidget);
       },
     );

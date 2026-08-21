@@ -400,6 +400,13 @@ class _OutcomeCardScreenState extends ConsumerState<OutcomeCardScreen>
   }
 
   void _onHome() {
+    // Same guard as `_onAgain` (real-ad-serving pass review, fix 9):
+    // without this, tapping Home while an "Again" interstitial call is
+    // still in flight pops back to `HomeScreen`, and the real ad overlay
+    // then lands on top of it once the call resolves and displays —
+    // confusing (an unexplained fullscreen ad after navigating away) even
+    // though `_onAgain`'s own `!mounted` check keeps it from crashing.
+    if (_navigating) return;
     Navigator.of(
       context,
     ).popUntil((route) => route.settings.name == AppRoutes.home);
@@ -1290,8 +1297,23 @@ class _AdFailedHostState extends ConsumerState<_AdFailedHost> {
     }
   }
 
+  void _onMaybeLater() {
+    // Same single-flight guard as `_onRetry` (real-ad-serving pass review,
+    // fix 9): without this, tapping "Maybe later" while a Retry's
+    // `showInterstitial()` call is still in flight navigates straight to
+    // `PlayLoopScreen` — arming the run's 3-2-1 countdown — and then has
+    // the real ad overlay land on top of it once the in-flight call
+    // resolves and displays. Reusing `_retrying` (rather than a second
+    // flag) is correct: once EITHER button is committed, the other must
+    // also stop responding, since this screen is leaving one way or
+    // another.
+    if (_retrying) return;
+    _retrying = true;
+    _goToPlay(context);
+  }
+
   @override
   Widget build(BuildContext context) {
-    return AdFailedView(onRetry: _onRetry, onMaybeLater: () => _goToPlay(context));
+    return AdFailedView(onRetry: _onRetry, onMaybeLater: _onMaybeLater);
   }
 }

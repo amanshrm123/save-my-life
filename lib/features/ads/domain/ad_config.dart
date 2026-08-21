@@ -6,14 +6,18 @@
 /// see [kAdsConfigured]) rather than crashing or shipping a placeholder
 /// value that looks like a real key.
 ///
-/// Consent/ATT (GDPR CMP, App Tracking Transparency) is explicitly out of
-/// scope for this pass — AppLovin's own test ad units don't require either,
-/// and nothing in this ad layer prompts for consent/tracking permission.
-/// (The one exception: `ios/Runner/Info.plist`'s `NSUserTrackingUsageDescription`
-/// key, a one-line native config addition so iOS's own ATT system prompt —
-/// which the AppLovin SDK triggers automatically during `initialize()` — can
-/// fire safely instead of the OS terminating the process for a missing usage
-/// string. That's plain Info.plist config, not anything owned by this file.)
+/// Consent/ATT (GDPR CMP, App Tracking Transparency) IS handled — via
+/// AppLovin's own bundled "Terms and Privacy Policy Flow"
+/// (`AppLovinAdService._init()` calls `setTermsAndPrivacyPolicyFlowEnabled`
+/// + `setPrivacyPolicyUrl` before `initialize()`), not by this app's own
+/// code calling the platform ATT/CMP APIs directly. This corrects an
+/// earlier version of this doc comment, which claimed the AppLovin SDK
+/// "triggers [the iOS ATT prompt] automatically during `initialize()`" —
+/// verified against AppLovin's current docs, that is false: the flow is
+/// opt-in and does nothing unless explicitly enabled first. Without it,
+/// `ios/Runner/Info.plist`'s `NSUserTrackingUsageDescription` key would sit
+/// unused (the ATT prompt would never actually fire), and this app would
+/// have no EEA/UK consent flow at all despite serving ads there.
 library;
 
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -75,3 +79,16 @@ const String kAppLovinTestDeviceAdvertisingId = String.fromEnvironment(
 /// `AndroidView`/`UiKitView` platform view or call the native AppLovin SDK
 /// method channel on a target that has neither.
 bool get kAdsConfigured => !kIsWeb && kAppLovinSdkKey.isNotEmpty;
+
+/// This app's hosted Privacy Policy, handed to AppLovin's Terms and Privacy
+/// Policy Flow (`AppLovinMAX.setPrivacyPolicyUrl`) so its ATT/CMP prompts
+/// can link out to it. A plain literal (not a dart-define — it's a public
+/// URL, not a secret) duplicated from `settings_screen.dart`'s own private
+/// `_kPrivacyUrl` rather than imported, to avoid a domain -> presentation
+/// dependency; keep both in sync if this app's Privacy Policy URL changes.
+const String kPrivacyPolicyUrl = 'https://soft-waterfall-3e3e.amanshrm74.workers.dev/privacy';
+
+/// This app's hosted Terms of Service, handed to
+/// `AppLovinMAX.setTermsOfServiceUrl` — see [kPrivacyPolicyUrl]'s doc
+/// comment for why this is a literal duplicated from `settings_screen.dart`.
+const String kTermsOfServiceUrl = 'https://soft-waterfall-3e3e.amanshrm74.workers.dev/terms';

@@ -83,11 +83,29 @@ class AppLovinAdService implements AdService {
   /// comment for why `BannerAdSlot` needs this signal.
   Future<void> get sdkInitialized => _sdkInitialized.future;
 
-  /// Safety net so a missing/dropped native callback can never permanently
-  /// wedge a `showInterstitial()` caller forever (real-ad-serving pass
-  /// review, fix 5) — see [showInterstitial]'s doc comment on the TOCTOU gap
-  /// this covers.
-  static const Duration _showTimeout = Duration(seconds: 8);
+  /// Safety net bounding ONLY the pre-display window — the TOCTOU gap
+  /// between the `isInterstitialReady` check and the native overlay
+  /// actually appearing (see [showInterstitial]'s doc comment). Cancelled
+  /// and replaced by [_postDisplayTimeout] the instant
+  /// [handleInterstitialDisplayed] fires (real-ad-serving pass review, fix
+  /// 9) — a single timer covering the whole show used to also cover
+  /// however long the player spent actually watching the ad, and fired
+  /// mid-display on any creative longer than this, wrongly reporting
+  /// `failedToLoad` for an ad the player was still looking at.
+  static const Duration _preDisplayTimeout = Duration(seconds: 8);
+
+  /// Ultimate safety net once the overlay is confirmed on screen — only
+  /// guards against a genuinely dropped `onAdHidden` callback (MAX is
+  /// documented to always fire it; this is defense-in-depth, not an
+  /// expected path), never against ordinary viewing time. Deliberately
+  /// generous so it can never race a real player actually watching the ad.
+  static const Duration _postDisplayTimeout = Duration(minutes: 5);
+
+  /// The single show attempt's pending timeout — [_preDisplayTimeout]
+  /// until [handleInterstitialDisplayed] rearms it as [_postDisplayTimeout],
+  /// cancelled outright once any handler resolves the completer via
+  /// [_completeIfPending].
+  Timer? _showTimeoutTimer;
 
   Future<void> _init() async {
     // Order matters here: `AppLovinMAX`'s plugin consumes
@@ -97,11 +115,44 @@ class AppLovinAdService implements AdService {
     // `AppLovinMAX.initialize()` itself at all: this constructor is now the
     // sole owner of the entire ordered sequence, so there's no second call
     // site that could race ahead of this one.
-    if (kAppLovinTestDeviceAdvertisingId.isNotEmpty) {
-      AppLovinMAX.setTestDeviceAdvertisingIds([
-        kAppLovinTestDeviceAdvertisingId,
-      ]);
-    }
+    // `set*` calls below (`setTestDeviceAdvertisingIds`,
+    // `setTermsAndPrivacyPolicyFlowEnabled`, `setPrivacyPolicyUrl`,
+    // `setTermsOfServiceUrl`) are all fire-and-forget `void` methods that
+    // internally call `MethodChannel.invokeMethod` WITHOUT exposing the
+    // resulting Future — so a failure (e.g. no platform channel/binding
+    // registered, exactly a plain `test()`/`setUpAll` environment with no
+    // `TestWidgetsFlutterBinding`) surfaces as an unhandled async Zone
+    // error, not a synchronously-catchable exception at the call site. A
+    // plain `try/catch` around them (as already used for `initialize()`
+    // below, which properly returns and is awaited) cannot see that error
+    // at all. `runZonedGuarded` routes it to the same best-effort no-op
+    // degrade this whole init chain already uses everywhere else.
+    runZonedGuarded(() {
+      // Order matters here: `AppLovinMAX`'s plugin consumes
+      // `testDeviceAdvertisingIdsToSet` INSIDE `initialize()` and clears it
+      // immediately after, so this must run BEFORE `initialize()` below,
+      // never after — this is also why `main.dart` no longer calls
+      // `AppLovinMAX.initialize()` itself at all: this constructor is now
+      // the sole owner of the entire ordered sequence, so there's no
+      // second call site that could race ahead of this one.
+      if (kAppLovinTestDeviceAdvertisingId.isNotEmpty) {
+        AppLovinMAX.setTestDeviceAdvertisingIds([
+          kAppLovinTestDeviceAdvertisingId,
+        ]);
+      }
+
+      // Enables AppLovin's own bundled Terms and Privacy Policy Flow
+      // (real-ad-serving pass review, fix 10) — like the test-device IDs
+      // above, MUST be set before `initialize()` below. This is what
+      // actually shows the iOS App Tracking Transparency system prompt and
+      // an EEA/UK consent (CMP) flow when applicable; neither happens on
+      // its own just because `Info.plist` declares
+      // `NSUserTrackingUsageDescription` — see `ad_config.dart`'s doc
+      // comment for the (corrected) full explanation.
+      AppLovinMAX.setTermsAndPrivacyPolicyFlowEnabled(true);
+      AppLovinMAX.setPrivacyPolicyUrl(kPrivacyPolicyUrl);
+      AppLovinMAX.setTermsOfServiceUrl(kTermsOfServiceUrl);
+    }, (error, stack) {});
 
     try {
       // Wrapped in try/catch defensively: with no ad network reachable (or,
@@ -126,6 +177,8 @@ class AppLovinAdService implements AdService {
   void _completeIfPending(InterstitialResult result) {
     final completer = _pendingInterstitial;
     _pendingInterstitial = null;
+    _showTimeoutTimer?.cancel();
+    _showTimeoutTimer = null;
     // Note: the `!completer.isCompleted` half of this guard is currently
     // unreachable in production — this method is the only place that both
     // reads AND nulls `_pendingInterstitial`, runs synchronously (never
@@ -160,6 +213,16 @@ class AppLovinAdService implements AdService {
     // same show attempt is still handled correctly by
     // `handleInterstitialDisplayFailed`, not racing a completer that
     // already resolved on display.
+    //
+    // It DOES rearm the safety-net timer to [_postDisplayTimeout] (fix 9):
+    // the overlay is confirmed on screen now, so the [_preDisplayTimeout]
+    // armed in [showInterstitial] — which only ever existed to bound the
+    // pre-display TOCTOU gap — must stop ticking through the player's
+    // actual viewing time.
+    final completer = _pendingInterstitial;
+    if (completer != null) {
+      _armShowTimeout(completer, _postDisplayTimeout);
+    }
   }
 
   @visibleForTesting
@@ -201,21 +264,38 @@ class AppLovinAdService implements AdService {
   }
 
   /// Test-only seam: whether a `showInterstitial()` call is currently
-  /// considered in flight — lets a unit test confirm the [_showTimeout]
-  /// path actually clears this, rather than just observing the returned
-  /// Future's value in isolation.
+  /// considered in flight — lets a unit test confirm the timeout path
+  /// actually clears this, rather than just observing the returned Future's
+  /// value in isolation.
   @visibleForTesting
   bool get debugHasPendingInterstitial => _pendingInterstitial != null;
 
-  /// Test-only seam exercising the exact timeout-wrapping [showInterstitial]
-  /// applies to a real show attempt's completer, without needing to drive
-  /// it through the ad-unit-id/ready-check gates that short-circuit
-  /// immediately whenever no `--dart-define` is supplied (the normal
-  /// targeted test-run shape for this repo).
+  /// Test-only seam exercising the exact [_preDisplayTimeout] arming
+  /// [showInterstitial] applies to a real show attempt's completer, without
+  /// needing to drive it through the ad-unit-id/ready-check gates that
+  /// short-circuit immediately whenever no `--dart-define` is supplied (the
+  /// normal targeted test-run shape for this repo).
   @visibleForTesting
-  Future<InterstitialResult> debugAwaitPendingWithTimeout(
+  Future<InterstitialResult> debugArmPreDisplayTimeout(
     Completer<InterstitialResult> completer,
-  ) => _awaitWithTimeout(completer);
+  ) {
+    _pendingInterstitial = completer;
+    _armShowTimeout(completer, _preDisplayTimeout);
+    return completer.future;
+  }
+
+  /// Test-only seam exercising the exact [_postDisplayTimeout] rearming
+  /// [handleInterstitialDisplayed] applies — lets a unit test drive the
+  /// post-display safety net directly, without needing a full
+  /// pre-display -> displayed round trip first.
+  @visibleForTesting
+  Future<InterstitialResult> debugArmPostDisplayTimeout(
+    Completer<InterstitialResult> completer,
+  ) {
+    _pendingInterstitial = completer;
+    _armShowTimeout(completer, _postDisplayTimeout);
+    return completer.future;
+  }
 
   @override
   bool get rendersOwnUi => false;
@@ -261,29 +341,41 @@ class AppLovinAdService implements AdService {
     // this caller forever (`_navigating` stuck true on `OutcomeCardScreen`)
     // and leaving `_pendingInterstitial` non-null so every later
     // `showInterstitial()` call this session immediately returns
-    // `failedToLoad` too. `_awaitWithTimeout` bounds that risk.
+    // `failedToLoad` too. [_armShowTimeout] bounds that risk — only for
+    // this pre-display window ([_preDisplayTimeout]); once
+    // [handleInterstitialDisplayed] confirms the overlay is actually on
+    // screen, it rearms this same timer to [_postDisplayTimeout] instead,
+    // so the clock never runs through the player's real viewing time
+    // (fix 9 — the single-timeout version of this used to do exactly that).
+    _armShowTimeout(completer, _preDisplayTimeout);
     AppLovinMAX.showInterstitial(kAppLovinInterstitialUnitId);
-    return _awaitWithTimeout(completer);
+    return completer.future;
   }
 
-  Future<InterstitialResult> _awaitWithTimeout(
-    Completer<InterstitialResult> completer,
-  ) {
-    return completer.future.timeout(
-      _showTimeout,
-      onTimeout: () {
-        // Only clear the shared `_pendingInterstitial` slot if it's still
-        // pointing at THIS completer — defends against clobbering a
-        // genuinely newer in-flight call in the (currently unreachable in
-        // production, since only one call is ever in flight at a time)
-        // case where a stale timeout fires after a newer completer has
-        // already taken the slot.
-        if (identical(_pendingInterstitial, completer)) {
-          _pendingInterstitial = null;
-        }
-        return InterstitialResult.failedToLoad;
-      },
-    );
+  /// Arms (replacing any existing timer) the safety-net timeout that
+  /// resolves [completer] to `failedToLoad` after [duration] if nothing
+  /// else has resolved it by then — used for both [_preDisplayTimeout] (in
+  /// [showInterstitial]) and [_postDisplayTimeout] (in
+  /// [handleInterstitialDisplayed]), so there is always at most one timer
+  /// ticking per in-flight show attempt, never a stale pre-display one
+  /// still running alongside a post-display one.
+  void _armShowTimeout(Completer<InterstitialResult> completer, Duration duration) {
+    _showTimeoutTimer?.cancel();
+    _showTimeoutTimer = Timer(duration, () {
+      // Only clear the shared `_pendingInterstitial` slot if it's still
+      // pointing at THIS completer — defends against clobbering a
+      // genuinely newer in-flight call in the (currently unreachable in
+      // production, since only one call is ever in flight at a time) case
+      // where a stale timeout fires after a newer completer has already
+      // taken the slot.
+      if (identical(_pendingInterstitial, completer)) {
+        _pendingInterstitial = null;
+        _showTimeoutTimer = null;
+      }
+      if (!completer.isCompleted) {
+        completer.complete(InterstitialResult.failedToLoad);
+      }
+    });
   }
 
   /// Rewarded is founder-descoped entirely (see `AdService.showRewarded`'s
