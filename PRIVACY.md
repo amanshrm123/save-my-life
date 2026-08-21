@@ -1,6 +1,6 @@
 # Privacy Policy
 
-Effective date: 2026-08-04
+Effective date: 2026-08-22
 
 This Privacy Policy explains what Save My Life (the "App") does and does not
 do with your information. It's written to describe what the App actually
@@ -25,8 +25,9 @@ The App is operated by Aman ("we", "us", "our"). See our Terms of Service
 - Sharing your result card is something *you* choose to do, through your
   device's own share sheet or another app you already have installed — we
   never see or receive that image.
-- We don't currently show ads or use advertising SDKs. If that changes, this
-  policy will be updated before it ships (see section 8).
+- The App shows ads through AppLovin MAX, a third-party advertising SDK.
+  AppLovin may collect device and advertising-identifier data to select and
+  measure ads — see section 8 for what that involves and your choices.
 
 ## 2. Information stored only on your device
 
@@ -110,13 +111,39 @@ and we will address it.
 
 ## 8. Advertising
 
-As of the effective date above, the App does not show ads and does not
-integrate any advertising SDK. **If we add advertising in the future**
-(which would introduce a new third party receiving data, such as a device
-advertising identifier, for ad delivery/measurement), we will update this
-policy first, and — where applicable — request any consent required by
-Apple's App Tracking Transparency, Google Play's advertising ID rules, or
-GDPR/CCPA before that data is ever collected.
+We work with AppLovin to deliver ads in our mobile application and other
+devices and/or platforms. When an ad is shown, AppLovin (and the ad networks
+it mediates) may collect and process:
+
+- Your device's advertising identifier (IDFA on iOS, or Android's
+  equivalent), used to select and measure ads and to limit how often the
+  same ad repeats.
+- Standard device/technical information: device model, OS version, IP
+  address (which can indicate an approximate, non-precise location), locale,
+  and app version.
+- Ad interaction data: which ads were shown, viewed, or tapped.
+
+The App does not send AppLovin your player name, stats, or anything else
+described in section 2 — only the SDK-level signals above.
+
+**Your choices:**
+
+- **iOS**: the App requests App Tracking Transparency permission before
+  AppLovin can use your device's advertising identifier for tracking. You
+  can allow or deny this the first time it's asked, or change it later in
+  Settings → Privacy & Security → Tracking.
+- **Android**: you can reset or opt out of the advertising identifier in
+  your device's Settings → Privacy → Ads.
+- **EEA/UK/California and similar jurisdictions**: AppLovin presents its own
+  consent flow, built into the SDK, before collecting or processing data for
+  advertising in these regions, and honors "Do Not Sell/Share" and similar
+  opt-out signals.
+
+For more information about AppLovin's collection and use of your
+information, visit [AppLovin's privacy policy](https://www.legal.applovin.com/privacy/).
+
+If we add another advertising SDK or ad network beyond AppLovin in the
+future, we will update this policy first.
 
 ## 9. Your rights and choices
 

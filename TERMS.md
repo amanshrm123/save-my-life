@@ -1,6 +1,6 @@
 # Terms of Service
 
-Effective date: 2026-08-04
+Effective date: 2026-08-22
 
 ## 1. Introduction
 Welcome to Save My Life (the “App”) operated by Aman (“we”, “us”, or “our”). These Terms of Service (“Terms”) govern your use of the App and any related services. By downloading, installing, or using the App you agree to these Terms. If you do not agree, do not use the App.
@@ -30,7 +30,7 @@ The App does not offer paid features, subscriptions, or in-app purchases. If we 
 All intellectual property rights in the App (including code, designs, graphics and trademarks) are owned by us or our licensors. You may not copy, modify, distribute, sell, or lease any part of the App except as expressly permitted by these Terms.
 
 ## 9. Third-party services and links
-The App includes a crash/error reporting service (Sentry) that receives limited technical diagnostic data when the App encounters an error, and may include links to other third-party services (for example, if you use the App's own share button, or tap an in-app link). See our Privacy Policy for what is actually collected and why. We are not responsible for the content, privacy practices, or services of third parties. Use of third-party services is subject to their own terms.
+The App includes a crash/error reporting service (Sentry) that receives limited technical diagnostic data when the App encounters an error, and shows ads through AppLovin MAX, a third-party advertising SDK. The App may also include links to other third-party services (for example, if you use the App's own share button, or tap an in-app link). See our Privacy Policy for what is actually collected and why. We are not responsible for the content, privacy practices, or services of third parties. Use of third-party services is subject to their own terms.
 
 ## 10. Disclaimer of warranties
 The App is provided “as is” and “as available” without warranties of any kind. To the fullest extent permitted by law, we disclaim all warranties, whether express or implied, including merchantability, fitness for a particular purpose, and non-infringement.
