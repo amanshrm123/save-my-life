@@ -66,6 +66,12 @@ const String kKeyReminderOptInShown = 'reminder_opt_in_shown';
 /// first commit from `/avatar-picker`).
 const String kKeyAvatarId = 'avatar_id';
 
+/// Whether the Home dashboard's first-time feature tour has already been
+/// shown (onboarding-tour v1 §2.4). bool, default false. Named
+/// `home_tour_shown`, not `tour_shown`, so a future per-screen tour adds its
+/// own key with no migration.
+const String kKeyHomeTourShown = 'home_tour_shown';
+
 // --- Remote story config: dedup cycle (options §8.2) ---
 
 /// IDs of story beats already shown in the current cycle. StringList, default [].

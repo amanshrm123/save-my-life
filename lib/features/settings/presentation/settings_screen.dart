@@ -12,6 +12,7 @@ import '../../notifications/state/reminder_providers.dart';
 import '../../onboarding/state/onboarding_providers.dart';
 import '../../outcome/state/outcome_providers.dart';
 import '../../progression/state/stats_providers.dart';
+import '../../tour/state/tour_providers.dart';
 import 'widgets/edit_name_dialog.dart';
 import 'widgets/reset_confirm_dialog.dart';
 import 'widgets/settings_toggle.dart';
@@ -80,6 +81,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     } finally {
       if (mounted) setState(() => _reminderBusy = false);
     }
+  }
+
+  /// Onboarding-tour v1 §2.3: queues a replay via the transient (not
+  /// persisted) `pendingHomeTourProvider`, then pops back to Home, whose own
+  /// `didPopNext()` -> `_onBecameVisible()` picks it up and starts the tour
+  /// regardless of `home_tour_shown`.
+  void _onReplayTourTap() {
+    ref.read(pendingHomeTourProvider.notifier).state = true;
+    Navigator.of(context).pop();
   }
 
   Future<void> _openUrl(String url) async {
@@ -208,6 +218,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                             ),
                           )
                         : SettingsToggle(value: settings.reminder, onChanged: _onReminderToggle),
+                  ),
+                  _SettingsRow(
+                    emoji: '🧭',
+                    label: 'Replay tour',
+                    chevron: true,
+                    onTap: _onReplayTourTap,
                   ),
                   const Padding(
                     padding: EdgeInsets.symmetric(vertical: 10),

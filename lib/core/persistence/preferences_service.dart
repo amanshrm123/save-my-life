@@ -263,6 +263,22 @@ class PreferencesService {
     }
   }
 
+  bool get homeTourShown {
+    try {
+      return _prefs.getBool(kKeyHomeTourShown) ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> setHomeTourShown(bool value) async {
+    try {
+      await _prefs.setBool(kKeyHomeTourShown, value);
+    } catch (_) {
+      // Swallow.
+    }
+  }
+
   int get avatarId {
     try {
       return _prefs.getInt(kKeyAvatarId) ?? -1;

@@ -5,11 +5,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timing_tap/core/persistence/preferences_service.dart';
 import 'package:timing_tap/core/routing/app_routes.dart';
+import 'package:timing_tap/core/widgets/page_dots.dart';
 import 'package:timing_tap/core/widgets/sticker_button.dart';
 import 'package:timing_tap/features/onboarding/data/player_profile_repository.dart';
 import 'package:timing_tap/features/onboarding/domain/player_profile.dart';
 import 'package:timing_tap/features/onboarding/presentation/onboarding_screen.dart';
-import 'package:timing_tap/features/onboarding/presentation/widgets/page_dots.dart';
 import 'package:timing_tap/features/onboarding/state/onboarding_providers.dart';
 
 /// A repository that always throws on the terminal write actions, to

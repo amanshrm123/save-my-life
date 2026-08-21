@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/widgets/page_dots.dart';
 import '../../../../core/widgets/sticker_button.dart';
-import 'page_dots.dart';
 
 /// Reusable teach-card body (design spec v1 §2.2-2.4): emoji mark, headline,
 /// description, dot indicator, and a single green sticker-button CTA whose

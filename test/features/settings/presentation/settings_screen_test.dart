@@ -6,8 +6,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timing_tap/core/persistence/preferences_keys.dart';
 import 'package:timing_tap/core/persistence/preferences_service.dart';
+import 'package:timing_tap/core/routing/app_route_observer.dart';
 import 'package:timing_tap/core/routing/app_routes.dart';
 import 'package:timing_tap/features/avatar/state/avatar_providers.dart';
+import 'package:timing_tap/features/home/presentation/home_screen.dart';
 import 'package:timing_tap/features/notifications/application/reminder_service.dart';
 import 'package:timing_tap/features/notifications/application/reminder_service_noop.dart';
 import 'package:timing_tap/features/notifications/state/reminder_providers.dart';
@@ -16,6 +18,8 @@ import 'package:timing_tap/features/progression/state/stats_providers.dart';
 import 'package:timing_tap/features/settings/presentation/settings_screen.dart';
 import 'package:timing_tap/features/settings/presentation/widgets/settings_toggle.dart';
 import 'package:timing_tap/features/settings/state/settings_providers.dart';
+import 'package:timing_tap/features/tour/presentation/widgets/tour_overlay.dart';
+import 'package:timing_tap/features/tour/state/tour_providers.dart';
 
 /// Settings' reset-progress teardown (architecture v3 §7/§11 risk 6): every
 /// prefs key cleared, every dependent RAM provider invalidated, and the
@@ -288,6 +292,66 @@ void main() {
 
     expect(find.byType(CircularProgressIndicator), findsNothing);
     expect(container.read(settingsProvider).reminder, isTrue);
+  });
+
+  group('onboarding-tour v1 §2.3 — the "Replay tour" row', () {
+    testWidgets('is placed below "Daily reminder" and above the legal-group divider', (tester) async {
+      await pumpSettings(tester);
+
+      final replayRow = tester.getCenter(find.text('Replay tour'));
+      final reminderRow = tester.getCenter(find.text('Daily reminder'));
+      final privacyRow = tester.getCenter(find.text('Privacy policy'));
+
+      expect(replayRow.dy, greaterThan(reminderRow.dy));
+      expect(replayRow.dy, lessThan(privacyRow.dy));
+    });
+
+    testWidgets(
+      'tapping it queues a replay via pendingHomeTourProvider and pops back '
+      'to Home, which then starts the tour even though home_tour_shown is '
+      'already true',
+      (tester) async {
+        SharedPreferences.setMockInitialValues({
+          kKeyHomeTourShown: true,
+          kKeyTotalRunsPlayed: 0,
+          kKeyReminderOptInShown: true,
+        });
+        final service = await PreferencesService.create();
+        final container = ProviderContainer(
+          overrides: [preferencesServiceProvider.overrideWithValue(service)],
+        );
+        addTearDown(container.dispose);
+
+        await tester.pumpWidget(
+          UncontrolledProviderScope(
+            container: container,
+            child: MaterialApp(
+              navigatorObservers: [appRouteObserver],
+              initialRoute: AppRoutes.home,
+              routes: {
+                AppRoutes.home: (_) => const HomeScreen(),
+                AppRoutes.settings: (_) => const SettingsScreen(),
+              },
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(find.byType(TourOverlay), findsNothing, reason: 'home_tour_shown is already true');
+
+        // The real Home -> gear -> Settings path, not a synthetic push.
+        await tester.tap(find.bySemanticsLabel('Settings'));
+        await tester.pumpAndSettle();
+        expect(find.byType(SettingsScreen), findsOneWidget);
+
+        await tester.tap(find.text('Replay tour'));
+        await tester.pumpAndSettle();
+
+        expect(find.byType(SettingsScreen), findsNothing);
+        expect(find.byType(HomeScreen), findsOneWidget);
+        expect(find.byType(TourOverlay), findsOneWidget);
+        expect(container.read(pendingHomeTourProvider), isFalse);
+      },
+    );
   });
 }
 
